@@ -7,6 +7,7 @@
 1. iOS 客户端完成拍照、上传、学习展示、播放和统计展示。
 2. 服务端完成 OCR、正文清洗、AI 拆句翻译、音频生成与数据存储。
 3. 系统支持历史复习、音频缓存和后续功能扩展。
+4. 学习记录与账号绑定，支持多设备同步。
 
 ## 2. 总体架构
 
@@ -33,6 +34,7 @@ iOS App
 2. 文本解析与音频生成支持分阶段返回。
 3. 文章、句子、音频和学习记录使用结构化存储。
 4. 便于将来接入不同 OCR、LLM、TTS 提供商。
+5. 账号体系与统计体系统一基于 `user_id` 聚合。
 
 ## 3. 客户端方案
 
@@ -57,6 +59,7 @@ iOS App
 6. `HistoryModule`
 7. `StatsModule`
 8. `SettingsModule`
+9. `SyncModule`
 
 ## 3.3 客户端关键能力
 
@@ -73,6 +76,14 @@ iOS App
 1. 缓存最近学习文章结构化数据
 2. 缓存最近音频 URL 与播放位置
 3. 缓存当天统计摘要
+4. 缓存登录态、最近同步时间和待同步任务
+
+### 登录与同步
+
+1. 用户登录后拉取云端文章、学习记录和统计数据
+2. 学习行为优先写入本地，再异步上传服务端
+3. 弱网状态下保留待同步队列，网络恢复后继续同步
+4. 同步冲突以服务端时间戳和业务规则进行合并
 
 ### 播放器
 
@@ -113,6 +124,16 @@ iOS App
 
 负责用户信息、登录态、订阅状态和设备绑定。
 
+### Auth Service
+
+负责认证相关能力：
+
+1. Apple 登录
+2. 手机号或邮箱验证码登录
+3. Access Token 与 Refresh Token 管理
+4. 设备会话管理
+5. 退出登录与 token 刷新
+
 ### Article Service
 
 负责文章上传、文章详情、历史列表、文章修订与存储。
@@ -130,6 +151,14 @@ iOS App
 ### Study Record Service
 
 负责记录用户学习行为、复习行为和打卡状态。
+
+### Sync Strategy
+
+负责跨设备一致性：
+
+1. 文章与学习记录绑定账号
+2. 播放位置与最近学习状态可增量同步
+3. 统计数据由服务端统一汇总，避免端侧口径不一致
 
 ### Analytics Service
 
@@ -151,6 +180,13 @@ iOS App
    - 可选关键词解释
 8. 调用 TTS 生成句子级或全文级音频
 9. 存储结构化结果并返回客户端
+
+学习同步补充说明：
+
+1. 已登录用户的文章在创建时写入 `user_id`
+2. 学习过程中关键行为实时写入 `study_records`
+3. `daily_stats` 由服务端异步汇总生成
+4. 新设备登录后通过同步接口拉取最近学习摘要
 
 ## 5.2 OCR 策略
 
@@ -205,18 +241,34 @@ iOS App
 |---|---|---|
 | id | uuid | 用户 ID |
 | email | varchar | 登录邮箱 |
+| phone | varchar | 手机号 |
 | nickname | varchar | 昵称 |
 | avatar_url | varchar | 头像 |
+| apple_sub | varchar | Apple 登录唯一标识 |
+| last_login_at | timestamp | 最近登录时间 |
 | created_at | timestamp | 创建时间 |
 
-## 6.2 articles
+## 6.2 user_sessions
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | uuid | 会话 ID |
+| user_id | uuid | 用户 ID |
+| device_id | varchar | 设备 ID |
+| platform | varchar | 平台 |
+| refresh_token_hash | varchar | 刷新令牌摘要 |
+| expires_at | timestamp | 过期时间 |
+| created_at | timestamp | 创建时间 |
+| revoked_at | timestamp | 注销时间 |
+
+## 6.3 articles
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | uuid | 文章 ID |
 | user_id | uuid | 所属用户 |
 | title | varchar | 文章标题 |
-| source_image_url | varchar | 原始图片地址 |
+| source_image_url | varchar | 裁剪后的上传图片地址 |
 | raw_ocr_text | text | OCR 原始文本 |
 | cleaned_text | text | 清洗后的正文 |
 | parse_status | varchar | 解析状态 |
@@ -224,7 +276,7 @@ iOS App
 | created_at | timestamp | 创建时间 |
 | updated_at | timestamp | 更新时间 |
 
-## 6.3 article_sentences
+## 6.4 article_sentences
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -237,7 +289,7 @@ iOS App
 | audio_url | varchar | 音频地址 |
 | duration_ms | int | 音频时长 |
 
-## 6.4 study_records
+## 6.5 study_records
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -247,9 +299,10 @@ iOS App
 | action_type | varchar | 行为类型 |
 | study_date | date | 学习日期 |
 | duration_seconds | int | 时长 |
+| progress_payload | jsonb | 当前句、播放位置等进度信息 |
 | created_at | timestamp | 创建时间 |
 
-## 6.5 daily_stats
+## 6.6 daily_stats
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -288,7 +341,38 @@ iOS App
 }
 ```
 
-## 7.2 创建解析任务
+## 7.2 登录
+
+`POST /api/v1/auth/login`
+
+请求示例：
+
+```json
+{
+  "provider": "apple",
+  "identityToken": "token-from-apple",
+  "deviceId": "ios-device-uuid"
+}
+```
+
+响应示例：
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "nickname": "Amy"
+  },
+  "accessToken": "jwt-access-token",
+  "refreshToken": "jwt-refresh-token"
+}
+```
+
+## 7.3 刷新登录态
+
+`POST /api/v1/auth/refresh`
+
+## 7.4 创建解析任务
 
 `POST /api/v1/articles/{articleId}/parse`
 
@@ -301,7 +385,7 @@ iOS App
 }
 ```
 
-## 7.3 查询文章详情
+## 7.5 查询文章详情
 
 `GET /api/v1/articles/{articleId}`
 
@@ -325,11 +409,11 @@ iOS App
 }
 ```
 
-## 7.4 历史文章列表
+## 7.6 历史文章列表
 
 `GET /api/v1/articles/history?page=1&pageSize=20`
 
-## 7.5 记录学习行为
+## 7.7 记录学习行为
 
 `POST /api/v1/study/records`
 
@@ -341,9 +425,20 @@ iOS App
 4. `review_started`
 5. `review_completed`
 
-## 7.6 获取统计数据
+## 7.8 获取统计数据
 
 `GET /api/v1/stats/dashboard`
+
+## 7.9 获取同步摘要
+
+`GET /api/v1/sync/bootstrap`
+
+用于新设备登录后拉取：
+
+1. 最近学习文章
+2. 学习记录摘要
+3. 今日和累计统计数据
+4. 用户个性化设置
 
 ## 8. 异步任务设计
 
@@ -399,6 +494,8 @@ iOS App
 3. 图片存储地址使用签名 URL
 4. 服务端记录 Prompt 与返回时需注意脱敏
 5. 明确用户协议和隐私政策
+6. Refresh Token 仅保存摘要，不明文入库
+7. 支持多设备会话撤销与异常下线
 
 ## 11. 成本控制建议
 
@@ -431,10 +528,11 @@ iOS App
 ### 第 1 阶段：MVP 闭环
 
 1. iOS 拍照与上传
-2. OCR + LLM 解析
-3. 学习页展示
-4. 音频播放
-5. 历史与统计
+2. 登录与同步基础能力
+3. OCR + LLM 解析
+4. 学习页展示
+5. 音频播放
+6. 历史与统计
 
 ### 第 2 阶段：体验优化
 
