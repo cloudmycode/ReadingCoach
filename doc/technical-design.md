@@ -97,28 +97,40 @@ iOS App
 
 ## 4.1 技术栈建议
 
-可选组合一：
+推荐服务端技术栈：
 
-1. API：Node.js + NestJS
-2. 数据库：PostgreSQL
-3. 缓存：Redis
-4. 对象存储：AWS S3 / 阿里云 OSS / 腾讯云 COS
-5. 异步任务：BullMQ 或 RabbitMQ
+1. 语言：Go 1.24+
+2. HTTP 框架：Gin 或 Chi
+3. 数据库：PostgreSQL
+4. 缓存：Redis
+5. 对象存储：AWS S3 / 阿里云 OSS / 腾讯云 COS
+6. 异步任务：Asynq 或 RabbitMQ
+7. 数据访问：GORM 或 sqlc
+8. 配置管理：环境变量方案或 Viper
+9. 日志：Zap 或 Zerolog
 
-可选组合二：
+推荐组合：
 
-1. API：Python + FastAPI
-2. 数据库：PostgreSQL
-3. 缓存：Redis
-4. 异步任务：Celery
+`Go + Gin + PostgreSQL + Redis + Asynq`
 
-如果团队 iOS 和服务端都偏创业小团队，推荐 `FastAPI + PostgreSQL + Redis + Celery`，开发速度更快。
+原因：
+
+1. Go 适合高并发 API、文件上传和任务编排场景。
+2. 单二进制部署简单，适合 MVP 快速上线。
+3. 调用 OCR、LLM、TTS 等外部服务时稳定性和性能都比较合适。
+4. 后续从单体服务演进到多服务时迁移成本相对可控。
 
 ## 4.2 服务划分
 
 ### API Gateway
 
 负责统一接入、鉴权、限流和路由。
+
+Go 落地建议：
+
+1. MVP 阶段先采用模块化单体服务，不急于拆成多个独立微服务。
+2. 用包结构拆分 `auth`、`article`、`study`、`stats`、`sync` 等领域模块。
+3. 统一通过中间件处理鉴权、日志、限流和错误响应。
 
 ### User Service
 
@@ -147,6 +159,12 @@ iOS App
 3. 句子切分
 4. 逐句翻译与拆句讲解
 5. 音频生成
+
+Go 落地建议：
+
+1. API 层只负责创建任务和返回状态，不同步等待完整解析结果。
+2. OCR、解析、TTS 由 Asynq worker 分阶段执行。
+3. 每阶段结果及时落库，便于失败重试和任务恢复。
 
 ### Study Record Service
 
@@ -450,6 +468,12 @@ iOS App
 2. `parse_queue`
 3. `tts_queue`
 
+Go 实现建议：
+
+1. 使用 Asynq 作为基于 Redis 的任务队列。
+2. 为每类任务定义明确的 payload 结构体，避免弱类型传参。
+3. 针对 OCR、解析、TTS 配置不同超时、重试次数和优先级。
+
 ## 8.2 原因
 
 1. OCR、解析、音频生成耗时差异大
@@ -497,6 +521,12 @@ iOS App
 6. Refresh Token 仅保存摘要，不明文入库
 7. 支持多设备会话撤销与异常下线
 
+Go 工程建议：
+
+1. 使用中间件统一处理 request id、panic recovery、鉴权和访问日志。
+2. 对外部 AI 服务调用增加 timeout、retry 和熔断保护。
+3. 对登录、上传、同步等高风险接口增加限流和审计日志。
+
 ## 11. 成本控制建议
 
 1. OCR 与 LLM 分步执行，避免不必要的音频生成
@@ -533,6 +563,12 @@ iOS App
 4. 学习页展示
 5. 音频播放
 6. 历史与统计
+
+后端优先级建议：
+
+1. 先完成 Go API 骨架、鉴权和文章上传。
+2. 再接入 Asynq 队列与 AI 处理链路。
+3. 最后补齐统计汇总、历史列表和同步接口。
 
 ### 第 2 阶段：体验优化
 
