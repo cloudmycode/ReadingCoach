@@ -215,6 +215,13 @@ type TTSProvider interface {
 3. 返回临时音频文件或字节流
 4. 由 storage provider 转存到对象存储
 
+音频持久化要求：
+
+1. 每个句子生成独立音频文件。
+2. 音频文件上传到对象存储后保留稳定访问路径。
+3. 只要句子内容未变化，不重复生成音频。
+4. 当句子内容变更并重新解析时，生成新的音频资源地址。
+
 ## 6.3 OCRProvider
 
 ```go
@@ -296,6 +303,12 @@ type TTSTaskPayload struct {
 4. 回写 `audio_url` 和 `duration_ms`
 5. 全部句子完成后更新文章 `audio_status`
 
+客户端协作规则：
+
+1. 服务端只负责生成并保存音频，不主动下发二进制内容到客户端缓存目录。
+2. 客户端首次播放时通过 `audio_url` 下载对应句子音频。
+3. 后续是否重下由客户端依据本地缓存命中情况决定。
+
 ## 7.4 重试策略
 
 1. OCR 失败：最多重试 3 次
@@ -323,6 +336,7 @@ type TTSTaskPayload struct {
 4. `study_records(article_id, created_at)`
 5. `daily_stats(user_id, stat_date)`
 6. `user_sessions(user_id, revoked_at)`
+7. `article_sentences(article_id, audio_url)`
 
 ## 8.3 状态字段建议
 
