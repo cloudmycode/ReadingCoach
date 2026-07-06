@@ -4,8 +4,8 @@
 
 当前代码主目录：
 
-- iOS 客户端：`/Users/wang/Project/WordsApp/reading/iosclient/ReadingApp`
-- Go 服务端：`/Users/wang/Project/WordsApp/reading/server`
+- iOS 客户端：`/Users/wang/Project/WordsApp/ReadingCoach/iosclient/ReadingApp`
+- Go 服务端：`/Users/wang/Project/WordsApp/ReadingCoach/server`
 
 ## 文档列表
 

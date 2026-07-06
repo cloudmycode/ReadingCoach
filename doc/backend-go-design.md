@@ -65,9 +65,8 @@ server/
 
 说明：
 
-1. 当前实际工程目录为 `/Users/wang/Project/WordsApp/reading/server`
+1. 当前实际工程目录为 `/Users/wang/Project/WordsApp/ReadingCoach/server`
 2. 现有代码已包含 `cmd/server/main.go` 入口，可在此基础上继续演进
-
 ## 4. 分层约束
 
 ### 4.1 handler 层
