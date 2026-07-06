@@ -1,0 +1,18 @@
+{
+  "HTTPAddr": ":8080",
+  "MySQLHost": "127.0.0.1",
+  "MySQLPort": "3306",
+  "MySQLUser": "root",
+  "MySQLPass": "change-me",
+  "MySQLDB": "readingcoach",
+  "JWTSecret": "dev-secret-change-me",
+  "LogsDir": "./logs",
+  "AttachmentsDir": "./web/static/attachments",
+  "DeepSeekAPIKey": "replace-with-deepseek-api-key",
+  "DeepSeekAPIURL": "https://api.deepseek.com/v1/chat/completions",
+  "DeepSeekModel": "replace-with-deepseek-vision-model",
+  "MicrosoftTTSKey": "replace-with-microsoft-tts-key",
+  "MicrosoftTTSRegion": "eastasia",
+  "MicrosoftTTSVoice": "en-US-JennyNeural",
+  "MicrosoftTTSAPIURL": ""
+}

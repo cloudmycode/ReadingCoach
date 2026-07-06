@@ -1,0 +1,19 @@
+.DS_Store
+
+# iOS
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Server runtime files
+server/config.json
+server/logs/
+server/server
+
+# Generated attachments
+server/web/static/attachments/articleaudio/
+server/web/static/attachments/uploadimage/
+
+# Python cache
+__pycache__/
+*.pyc

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>需要访问相机以拍摄文章内容进行解析</string>
+	<key>API_HOST</key>
+	<string>127.0.0.1</string>
+	<key>API_PORT</key>
+	<integer>8080</integer>
+	<key>API_SCHEME</key>
+	<string>http</string>
+</dict>
+</plist>
