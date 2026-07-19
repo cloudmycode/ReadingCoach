@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -46,69 +49,51 @@ func main() {
 	r.Static("/attachments", cfg.AttachmentsDir)
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-	api := r.Group("/api")
-	{
-		auth := handlers.NewAuthHandler(db, appServices.codeSvc, cfg)
-		authGroup := api.Group("/auth")
-		{
-			authGroup.POST("/code", auth.SendCode)
-			authGroup.POST("/login", auth.Login)
-			authGroup.GET("/user", auth.VerifyToken, auth.GetUserInfo)
-			authGroup.POST("/logout", auth.VerifyToken, auth.Logout)
-		}
-
-		articleHandler := handlers.NewArticleHandler(
+	auth := handlers.NewAuthHandler(db, appServices.codeSvc, cfg)
+	apiHandlers := &handlers.Handlers{
+		Auth: auth,
+		Article: handlers.NewArticleHandler(
 			cfg.AttachmentsDir,
 			appServices.articleSvc,
 			appServices.ttsService,
-			appServices.imageProcessor,
-		)
-		unitHandler := handlers.NewUnitHandler(appServices.unitSvc, appServices.imageProcessor)
-		statsHandler := handlers.NewStatsHandler(appServices.articleSvc)
-
-		articleGroup := api.Group("/articles")
-		{
-			articleGroup.GET("", auth.VerifyToken, articleHandler.ListArticles)
-			articleGroup.GET("/:id", auth.VerifyToken, articleHandler.GetArticleDetail)
-			articleGroup.DELETE("/:id", auth.VerifyToken, articleHandler.DeleteArticle)
-			articleGroup.POST("/process-images", auth.VerifyToken, articleHandler.ProcessArticleImages)
-		}
-
-		unitGroup := api.Group("/units")
-		{
-			unitGroup.GET("", auth.VerifyToken, unitHandler.ListUnits)
-			unitGroup.GET("/:id/words", auth.VerifyToken, unitHandler.ListUnitWords)
-			unitGroup.POST("/process-images", auth.VerifyToken, unitHandler.ProcessUnitImages)
-		}
-
-		imageGroup := api.Group("/image")
-		{
-			imageGroup.POST("/process", auth.VerifyToken, func(c *gin.Context) {
-				processType := c.PostForm("type")
-				switch processType {
-				case "", "article":
-					articleHandler.ProcessArticleImages(c)
-				case "unit":
-					unitHandler.ProcessUnitImages(c)
-				default:
-					c.JSON(http.StatusBadRequest, gin.H{
-						"success": false,
-						"message": "不支持的图片处理类型",
-					})
-				}
-			})
-		}
-
-		statsGroup := api.Group("/stats")
-		{
-			statsGroup.GET("/overview", auth.VerifyToken, statsHandler.GetOverview)
-		}
+			appServices.aiService,
+		),
+		Stats: handlers.NewStatsHandler(appServices.articleSvc),
 	}
+
+	api := r.Group("/api")
+	api.GET("/health", healthCheck(db))
+	// 所有业务接口集中定义在 handlers.Handlers.APIRoutes()，
+	// 想查看后台提供了哪些接口，只需查阅 internal/handlers/routes.go。
+	apiHandlers.Register(api, auth.VerifyToken)
 
 	logger.Info("✅ 服务器启动成功: http://localhost%s", cfg.HTTPAddr)
 	if err := r.Run(cfg.HTTPAddr); err != nil {
 		logger.Error("❌ 服务器启动失败: %v", err)
 		os.Exit(1)
+	}
+}
+
+// healthCheck 返回带数据库连通性检测的健康检查处理器。
+func healthCheck(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+
+		status := http.StatusOK
+		overall := "ok"
+		dbState := "ok"
+		if err := db.PingContext(ctx); err != nil {
+			status = http.StatusServiceUnavailable
+			overall = "degraded"
+			dbState = "error"
+		}
+
+		c.JSON(status, gin.H{
+			"status":   overall,
+			"database": dbState,
+			"time":     time.Now().Format(time.RFC3339),
+		})
 	}
 }
 
@@ -127,51 +112,37 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 type appServices struct {
-	codeSvc        services.CodeService
-	articleSvc     *services.ArticleService
-	unitSvc        *services.UnitService
-	aiService      *services.AIService
-	ttsService     services.TTSService
-	imageProcessor services.ImageProcessor
+	codeSvc    services.CodeService
+	articleSvc *services.ArticleService
+	aiService  *services.AIService
+	ttsService services.TTSService
 }
 
 func initServices(cfg config.Config, db *sql.DB) *appServices {
 	codeSvc := services.NewDBCodeService(db)
 	articleSvc := services.NewArticleService(db)
-	unitSvc := services.NewUnitService(db)
 
-	var aiService *services.AIService
-	var analyzer services.ImageAnalyzer
-	var ttsService services.TTSService
-
-	if aiService = services.NewAIService(
+	// TTS 使用免费的 Edge TTS，无需密钥，因此 AI 服务始终可用；
+	// DeepSeek 文本解析在未配置 API Key 时不可用。
+	aiService := services.NewAIService(
 		cfg.DeepSeekAPIKey,
 		cfg.DeepSeekAPIURL,
 		cfg.DeepSeekModel,
-		cfg.MicrosoftTTSKey,
-		cfg.MicrosoftTTSRegion,
-		cfg.MicrosoftTTSVoice,
-		cfg.MicrosoftTTSAPIURL,
-	); aiService != nil {
-		analyzer = aiService
-		ttsService = aiService
-		logger.Info("✅ AI 服务初始化成功（DeepSeek + Microsoft TTS）")
+		cfg.TTSVoice,
+	)
+	var ttsService services.TTSService = aiService
+
+	if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
+		logger.Warn("⚠️ DeepSeek 未配置，文本解析不可用；TTS 使用免费 Edge TTS")
 	} else {
-		logger.Warn("⚠️ AI 配置缺失，图片解析和 TTS 功能不可用")
+		logger.Info("✅ AI 服务初始化成功（DeepSeek 文本处理 + 免费 Edge TTS）")
 	}
 
-	imageProcessor := services.NewImageProcessor(services.ImageProcessorConfig{
-		AttachmentsDir: cfg.AttachmentsDir,
-		Analyzer:       analyzer,
-	})
-
 	return &appServices{
-		codeSvc:        codeSvc,
-		articleSvc:     articleSvc,
-		unitSvc:        unitSvc,
-		aiService:      aiService,
-		ttsService:     ttsService,
-		imageProcessor: imageProcessor,
+		codeSvc:    codeSvc,
+		articleSvc: articleSvc,
+		aiService:  aiService,
+		ttsService: ttsService,
 	}
 }
 
@@ -190,7 +161,6 @@ func ensureAllDirs(cfg *config.Config) {
 
 	requiredDirs := []string{
 		cfg.AttachmentsDir,
-		filepath.Join(cfg.AttachmentsDir, "uploadimage"),
 		filepath.Join(cfg.AttachmentsDir, "articleaudio"),
 	}
 	for _, dir := range requiredDirs {

@@ -5,8 +5,10 @@
 -- 字符集: utf8mb4
 -- 排序规则: utf8mb4_unicode_ci
 
+-- 已适配 MariaDB 5.5（5.5.64-MariaDB）：json 改为 longtext；datetime 的 CURRENT_TIMESTAMP 默认/更新改为 timestamp 或移除；utf8mb4_0900_ai_ci 改为 utf8mb4_unicode_ci
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
+SET SQL_MODE = '';
 
 -- ----------------------------
 -- 表结构: article_sentences
@@ -19,8 +21,8 @@ CREATE TABLE `article_sentences` (
   `original_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '句子原文（英文）',
   `translation` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '中文翻译',
   `is_favorite` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否收藏（0=未收藏，1=已收藏）',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NULL DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`sentence_id`),
   KEY `idx_article_id` (`article_id`) COMMENT '按文章查询',
   KEY `idx_sentence_order` (`article_id`,`sentence_order`) COMMENT '按文章和顺序查询',
@@ -111,11 +113,11 @@ CREATE TABLE `articles` (
   `title` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '文章标题',
   `sentence_count` int NOT NULL DEFAULT '0' COMMENT '句子数量',
   `sentence_duration` int DEFAULT NULL,
-  `attachment_paths` json DEFAULT NULL COMMENT '附件路径（JSON数组格式，存储多张图片路径）',
+  `attachment_paths` longtext COMMENT '附件路径（JSON数组格式，存储多张图片路径）',
   `read_count` int NOT NULL DEFAULT '0' COMMENT '阅读次数',
   `last_read_at` datetime DEFAULT NULL COMMENT '最后阅读时间',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NULL DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`article_id`),
   KEY `idx_user_id` (`user_id`) COMMENT '按用户查询',
   KEY `idx_last_read_at` (`user_id`,`last_read_at`) COMMENT '按用户和最后阅读时间排序',
@@ -147,7 +149,7 @@ CREATE TABLE `libraries` (
   `description` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '',
   `is_private` tinyint(1) NOT NULL DEFAULT '0',
   `password` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '下载词库需要密码时设置该字段',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime DEFAULT NULL,
   `word_count` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`library_id`),
@@ -176,7 +178,7 @@ CREATE TABLE `library_words` (
   `library_words_id` int NOT NULL AUTO_INCREMENT COMMENT '关联记录ID',
   `library_id` int NOT NULL COMMENT '词库ID',
   `word_id` int NOT NULL COMMENT '单词ID',
-  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到词库的时间',
+  `added_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到词库的时间',
   `added_by` int DEFAULT NULL COMMENT '添加者用户ID(用于记录谁添加的)',
   PRIMARY KEY (`library_words_id`),
   UNIQUE KEY `idx_library_word` (`library_id`,`word_id`) COMMENT '确保同一词库中单词不重复',
@@ -272,7 +274,7 @@ CREATE TABLE `unit_list` (
   `unit_list_id` int NOT NULL AUTO_INCREMENT,
   `owner_id` int NOT NULL,
   `title` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime DEFAULT NULL,
   `word_count` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`unit_list_id`),
@@ -291,7 +293,7 @@ CREATE TABLE `unit_words` (
   `word` int NOT NULL COMMENT '单词ID',
   `translation` varchar(256) COLLATE utf8mb4_unicode_ci DEFAULT '',
   `example` varchar(1024) COLLATE utf8mb4_unicode_ci DEFAULT '',
-  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到词库的时间',
+  `added_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到词库的时间',
   `added_by` int DEFAULT NULL COMMENT '添加者用户ID(用于记录谁添加的)',
   PRIMARY KEY (`unit_words_id`),
   UNIQUE KEY `idx_library_word` (`unit_list_id`,`word`) COMMENT '确保同一词库中单词不重复',
@@ -317,9 +319,9 @@ CREATE TABLE `user_library` (
   `words_mastered` int NOT NULL DEFAULT '0' COMMENT '已掌握单词数',
   `total_study_time` int NOT NULL DEFAULT '0' COMMENT '总学习时间(分钟)',
   `last_studied_at` datetime DEFAULT NULL COMMENT '最后学习时间',
-  `subscribed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '订阅时间',
+  `subscribed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '订阅时间',
   `started_at` datetime DEFAULT NULL COMMENT '开始学习时间',
-  `updated_at` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `updated_at` timestamp NULL DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`user_library_id`),
   UNIQUE KEY `idx_user_library` (`user_id`,`library_id`) COMMENT '确保用户对同一词库只有一条使用记录',
   KEY `idx_user_status` (`user_id`,`status`) COMMENT '按用户和状态查询',
@@ -352,8 +354,8 @@ CREATE TABLE `user_settings` (
   `user_id` int NOT NULL COMMENT '用户ID',
   `daily_time_goal` int NOT NULL DEFAULT '15' COMMENT '每日学习目标时间(分钟)',
   `interest_description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '兴趣描述文本',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NULL DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `idx_user_id` (`user_id`) USING BTREE,
   CONSTRAINT `fk_settings_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE ON UPDATE RESTRICT
@@ -372,7 +374,7 @@ CREATE TABLE `user_study_queue` (
   `library_id` int NOT NULL COMMENT '词库ID',
   `library_words_id` int NOT NULL COMMENT '单词在该词库中的ID',
   `status` enum('pending','learning','mastered') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT '学习状态: pending-待学, learning-学习中, mastered-已掌握',
-  `added_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到学词库的时间',
+  `added_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '添加到学词库的时间',
   `started_at` datetime DEFAULT NULL COMMENT '开始学习时间',
   `mastered_at` datetime DEFAULT NULL COMMENT '掌握时间',
   `priority` tinyint NOT NULL DEFAULT '0' COMMENT '学习优先级(0-普通,1-重要,2-紧急)',
@@ -451,8 +453,8 @@ CREATE TABLE `users` (
   `nickname` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '用户昵称',
   `avatar_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '头像URL',
   `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` timestamp NULL DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`user_id`) USING BTREE,
   UNIQUE KEY `idx_phone` (`phone`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户基本信息表';
@@ -477,7 +479,7 @@ CREATE TABLE `verification_codes` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `phone` varchar(20) NOT NULL COMMENT '手机号',
   `code` varchar(10) NOT NULL COMMENT '验证码',
-  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '过期时间',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `used_at` timestamp NULL DEFAULT NULL COMMENT '使用时间',
   `is_used` tinyint(1) DEFAULT '0' COMMENT '是否已使用',
@@ -487,7 +489,7 @@ CREATE TABLE `verification_codes` (
   KEY `idx_phone_expires` (`phone`,`expires_at`),
   KEY `idx_expires_at` (`expires_at`),
   KEY `idx_phone_created` (`phone`,`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=73 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='验证码表';
+) ENGINE=InnoDB AUTO_INCREMENT=73 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='验证码表';
 
 -- ----------------------------
 -- 表数据: verification_codes (共 1 行)
@@ -503,12 +505,12 @@ CREATE TABLE `words` (
   `word_id` int NOT NULL AUTO_INCREMENT COMMENT '单词ID',
   `headword` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `base_form` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '基本形式(词典形式)',
-  `translation` json DEFAULT NULL COMMENT '[{"part_of_speech":"verb","meaning":"跑步","example":"I had to run to catch the bus."},{"part_of_speech":"verb","meaning":"运转","example":"The engine runs smoothly."},{"part_of_speech":"noun","meaning":"跑步","example":"I go for a run every morning."}]',
+  `translation` longtext COLLATE utf8mb4_unicode_ci COMMENT '[{"part_of_speech":"verb","meaning":"跑步","example":"I had to run to catch the bus."},{"part_of_speech":"verb","meaning":"运转","example":"The engine runs smoothly."},{"part_of_speech":"noun","meaning":"跑步","example":"I go for a run every morning."}]',
   `uk_pron` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cefr_level` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `frequency` varchar(6) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `topic` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`word_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=23260 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

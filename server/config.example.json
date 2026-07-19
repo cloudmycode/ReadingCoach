@@ -7,12 +7,9 @@
   "MySQLDB": "readingcoach",
   "JWTSecret": "dev-secret-change-me",
   "LogsDir": "./logs",
-  "AttachmentsDir": "./web/static/attachments",
+  "AttachmentsDir": "./attachments",
   "DeepSeekAPIKey": "replace-with-deepseek-api-key",
   "DeepSeekAPIURL": "https://api.deepseek.com/v1/chat/completions",
-  "DeepSeekModel": "replace-with-deepseek-vision-model",
-  "MicrosoftTTSKey": "replace-with-microsoft-tts-key",
-  "MicrosoftTTSRegion": "eastasia",
-  "MicrosoftTTSVoice": "en-US-JennyNeural",
-  "MicrosoftTTSAPIURL": ""
+  "DeepSeekModel": "deepseek-chat",
+  "TTSVoice": "en-US-JennyNeural"
 }

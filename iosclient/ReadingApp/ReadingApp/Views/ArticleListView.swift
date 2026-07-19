@@ -15,7 +15,7 @@ enum ArticleRoute: Hashable {
 struct ArticleListView: View {
     @StateObject private var viewModel = ArticleListViewModel()
     @FocusState private var isSearchFocused: Bool
-    @State private var isCameraPresented = false
+    @State private var isDraftPresented = false
     @State private var showFeatureMessage = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
@@ -29,21 +29,17 @@ struct ArticleListView: View {
             .onDisappear {
                 print("🔵 [ArticleListView] onDisappear")
             }
-        .fullScreenCover(isPresented: $isCameraPresented) {
-            CameraCaptureView(
-                onSubmit: { uploadItems in
-                    // 调用分析文章图片的 API（使用统一接口）
-                    let response = try await AIAPI.shared.analyzeArticleImages(uploadItems)
-                    return response.id
-                },
-                onSuccess: { articleId in
+        .fullScreenCover(isPresented: $isDraftPresented) {
+            ArticleTextDraftView(
+                onSubmitted: { articleId in
                     if let path = appNavigationPath {
                         path.wrappedValue.append(AppNavigationRoute.articleRoute(.cameraResult(articleId)))
                     }
                     Task {
                         await viewModel.loadArticles()
                     }
-                }
+                },
+                startByCapturing: true
             )
         }
     }
@@ -255,7 +251,7 @@ struct ArticleListView: View {
     
     private var cameraButton: some View {
         Button {
-            isCameraPresented = true
+            isDraftPresented = true
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: "camera.fill")

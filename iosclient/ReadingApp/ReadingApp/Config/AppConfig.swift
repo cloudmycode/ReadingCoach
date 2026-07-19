@@ -9,8 +9,8 @@ import Foundation
 
 enum AppConfig {
     enum API {
-        static let scheme = Bundle.main.object(forInfoDictionaryKey: "API_SCHEME") as? String ?? "http"
-        static let domain = Bundle.main.object(forInfoDictionaryKey: "API_HOST") as? String ?? "127.0.0.1"
+        static let scheme = Bundle.main.object(forInfoDictionaryKey: "API_SCHEME") as? String ?? "https"
+        static let domain = Bundle.main.object(forInfoDictionaryKey: "API_HOST") as? String ?? "readingcoach.jingjiangke.com"
         static let port = Bundle.main.object(forInfoDictionaryKey: "API_PORT") as? Int
         
         static var serverBaseURL: URL {

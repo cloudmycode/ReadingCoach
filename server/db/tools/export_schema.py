@@ -21,10 +21,10 @@ from datetime import datetime
 # 数据库配置（从环境变量或使用默认值）
 DB_CONFIG = {
     'host': os.getenv('MYSQL_HOST', '127.0.0.1'),
-    'port': int(os.getenv('MYSQL_PORT', '3306')),
-    'user': os.getenv('MYSQL_USER', 'root'),
-    'password': os.getenv('MYSQL_PASS', 'change-me'),
-    'database': os.getenv('MYSQL_DB', 'readingcoach'),
+    'port': int(os.getenv('MYSQL_PORT', '13306')),
+    'user': os.getenv('MYSQL_USER', 'readingcoach'),
+    'password': os.getenv('MYSQL_PASS', ''),
+    'database': os.getenv('MYSQL_DB', 'ReadingCoach'),
     'charset': 'utf8mb4'
 }
 
@@ -238,7 +238,7 @@ def parse_arguments():
   python export_schema.py                    # 完整导出（默认）
   python export_schema.py --schema-only     # 仅导出表结构
   python export_schema.py --data-only       # 仅导出数据
-  python export_schema.py --full mydb.sql   # 完整导出到指定文件
+  python export_schema.py --full backup.sql # 完整导出到指定文件
   python export_schema.py --help             # 显示帮助信息
         """
     )

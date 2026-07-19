@@ -34,7 +34,7 @@
 | 认证 | POST | `/api/auth/login` | 否 | 短信验证码登录，返回 JWT |
 | 认证 | GET | `/api/auth/user` | 是 | 获取当前用户信息 |
 | 认证 | POST | `/api/auth/logout` | 是 | 登出（清除 Cookie） |
-| 图片 | POST | `/api/image/process` | 是 | 上传图片 → AI 解析并生成文章 |
+| 文章 | POST | `/api/articles/process-text` | 是 | 提交客户端校对后的英文正文，生成文章与句子音频 |
 | 文章 | GET | `/api/articles/:id` | 是 | 文章详情（:id 为加密 ID） |
 | 文章 | GET | `/api/articles` | 是 | 当前用户的文章列表 |
 
@@ -128,38 +128,40 @@
 
 ---
 
-### 4.5 `POST /api/image/process`
+### 4.5 `POST /api/articles/process-text`
 
-- **用途**：上传 1~N 张图片，后端压缩至 1024px 内，调用 DeepSeek 模型识别英文句子并翻译，再写入数据库生成文章。
+- **用途**：接收客户端已经校对过的英文正文文本，由 DeepSeek 负责清洗、断句和翻译，然后入库并异步生成音频。
 - **认证**：必需。
-- **Content-Type**：`multipart/form-data`
-- **文件字段**：支持以下任意形式，顺序即为识别顺序
-  - 单文件：`file`
-  - 多文件数组：`files[]`
-  - 多文件下标：`file[0]`, `file[1]` ...
+- **Content-Type**：`application/json`
+- **请求体**
+
+```json
+{
+  "text": "Here is the full English passage.\nIt can contain multiple lines."
+}
+```
+
 - **返回值**
-  - 成功时写入 `articles`、`article_sentences`，并异步触发 TTS 生成音频。
-  - `data.article_id` 为 **加密字符串**，需传给 `/api/articles/:id`。
 
 ```json
 {
   "success": true,
-  "message": "图片上传成功",
+  "message": "处理成功",
   "data": {
-    "article_id": "A1B2C3D4"  // utils.EncryptID 产物
+    "resource_id": "A1B2C3D4"
   }
 }
 ```
 
 - **错误**
-  - 400：无文件 / 解析失败
+  - 400：正文为空 / 参数错误
   - 401：未登录
-  - 502：AI 服务不可用
+  - 500：AI 服务不可用或入库失败
 
 ### 4.6 `GET /api/articles/:id`
 
-- **用途**：根据加密 ID 获取文章详情，包含所有句子及附件路径。
-- **路径参数**：`:id` 为 `/api/image/process` 返回的密文。服务端使用 `utils.DecryptID` 解析。
+- **用途**：根据加密 ID 获取文章详情，包含所有句子。
+- **路径参数**：`:id` 为 `/api/articles/process-text` 返回的密文。服务端使用 `utils.DecryptID` 解析。
 - **认证**：必需；只能查看自己的文章。
 - **响应**（`ArticleService.GetArticleDetail`）
 
@@ -171,10 +173,6 @@
     "article_id": 42,
     "title": "Once upon a time ...",
     "sentence_count": 10,
-    "attachment_paths": [
-      "/attachments/uploadimage/xxx.jpg",
-      "/attachments/uploadimage/yyy.png"
-    ],
     "sentences": [
       {
         "id": 0,
@@ -238,7 +236,7 @@
 
 ## 6. 其他辅助接口/行为
 
-- **附件访问**：上传的图片保存在 `${ATTACHMENTS_DIR}/uploadimage`，音频保存在 `${ATTACHMENTS_DIR}/articleaudio`，均可通过 `/attachments/...` 静态访问。
+- **附件访问**：当前阅读主流程只依赖 `${ATTACHMENTS_DIR}/articleaudio` 中的句子音频静态资源。
 - **TTS 生成**：当文章成功入库后会异步调用统一 AI provider（DeepSeek + Microsoft TTS）生成句子音频并保存在上述目录，时长最终写回 `articles.sentence_duration`。
 - **错误返回格式**：统一为 `{"success": false, "message": "错误描述"}`，HTTP 状态码依业务不同（400/401/404/500/502 等）。
 

@@ -28,11 +28,11 @@ type ArticleHandler struct {
 	audioDir       string
 	articleService *services.ArticleService
 	ttsService     services.TTSService
-	imageProcessor services.ImageProcessor
+	textAnalyzer   services.TextAnalyzer
 }
 
 // NewArticleHandler 创建文章处理器实例
-func NewArticleHandler(attachmentsDir string, articleService *services.ArticleService, ttsService services.TTSService, imageProcessor services.ImageProcessor) *ArticleHandler {
+func NewArticleHandler(attachmentsDir string, articleService *services.ArticleService, ttsService services.TTSService, textAnalyzer services.TextAnalyzer) *ArticleHandler {
 	audioDir := filepath.Join(attachmentsDir, articleAudioSubDir)
 
 	if err := os.MkdirAll(audioDir, 0o755); err != nil {
@@ -44,16 +44,20 @@ func NewArticleHandler(attachmentsDir string, articleService *services.ArticleSe
 		audioDir:       audioDir,
 		articleService: articleService,
 		ttsService:     ttsService,
-		imageProcessor: imageProcessor,
+		textAnalyzer:   textAnalyzer,
 	}
 }
 
-// GetArticleDetail 根据加密的文章ID获取文章详情（包括标题、附件路径和所有句子）
+type processArticleTextReq struct {
+	Text string `json:"text"`
+}
+
+// GetArticleDetail 根据加密的文章ID获取文章详情（包括标题和所有句子）
 // 参数:
 //   - id: 加密后的文章ID（URL路径参数）
 //
 // 返回:
-//   - ArticleDetail: 包含文章ID、标题、句子数量、附件路径和句子列表
+//   - ArticleDetail: 包含文章ID、标题、句子数量和句子列表
 //
 // 注意:
 //   - 需要用户登录认证
@@ -180,76 +184,52 @@ func (h *ArticleHandler) DeleteArticle(c *gin.Context) {
 	jsonOK(c, "删除成功", gin.H{})
 }
 
-// ProcessArticleImages 处理文章图片
-// POST /api/articles/process
-// 参数：
-//   - files: 图片文件数组（multipart/form-data）
-//
-// 响应：
-//
-//	{
-//	  "success": true,
-//	  "message": "处理成功",
-//	  "data": {
-//	    "resource_id": "加密后的文章ID",
-//	  }
-//	}
-func (h *ArticleHandler) ProcessArticleImages(c *gin.Context) {
-	// 解析multipart表单
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		jsonError(c, http.StatusBadRequest, "无法解析上传数据")
+func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
+	var req processArticleTextReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
 		return
 	}
 
-	// 收集图片文件
-	fileHeaders := collectImageFiles(c.Request.MultipartForm)
-	if len(fileHeaders) == 0 {
-		jsonError(c, http.StatusBadRequest, "未检测到上传图片")
-		return
-	}
-
-	// 获取用户ID
 	userID := getUserID(c)
 	if userID == 0 {
-		return // getUserID 已经处理了错误响应
-	}
-
-	// 检查服务是否配置
-	if h.imageProcessor == nil {
-		jsonError(c, http.StatusInternalServerError, "图片处理器未配置")
 		return
 	}
 	if h.articleService == nil {
 		jsonError(c, http.StatusInternalServerError, "文章服务未配置")
 		return
 	}
+	if h.textAnalyzer == nil {
+		jsonError(c, http.StatusInternalServerError, "文本分析服务未配置")
+		return
+	}
 
-	// 1. 调用imageProcessor处理图片（保存附件、调用AI）
-	result, err := h.imageProcessor.ProcessImages(
+	rawText := strings.TrimSpace(req.Text)
+	if rawText == "" {
+		jsonError(c, http.StatusBadRequest, "正文内容不能为空")
+		return
+	}
+
+	result, err := h.textAnalyzer.AnalyzeTextWithPrompt(
 		c.Request.Context(),
-		fileHeaders,
-		services.ImageProcessTypeArticle,
+		rawText,
+		services.ArticleTextAnalysisPrompt,
 	)
 	if err != nil {
-		logger.Error("❌ 图片处理失败: %v", err)
-		jsonError(c, http.StatusInternalServerError, "处理图片失败: "+err.Error())
+		logger.Error("❌ 文本解析失败: %v", err)
+		jsonError(c, http.StatusInternalServerError, "解析文本失败: "+err.Error())
 		return
 	}
 
-	// 2. 提取附件路径并转换AI数据为句子输入
-	attachmentPaths := extractAttachmentPaths(result.Attachments)
-	sentenceInputs := convertAIDataToSentences(result.Data)
+	sentenceInputs := convertAIDataToSentences(result)
 	if len(sentenceInputs) == 0 {
-		jsonError(c, http.StatusBadRequest, "AI未识别到有效内容")
+		jsonError(c, http.StatusBadRequest, "未识别到有效句子")
 		return
 	}
 
-	// 4. 保存到数据库
 	articleID, err := h.articleService.SaveAnalyzedArticle(
 		c.Request.Context(),
 		userID,
-		"", // title会被忽略，使用第一句作为标题
-		attachmentPaths,
 		sentenceInputs,
 	)
 	if err != nil {
@@ -258,15 +238,12 @@ func (h *ArticleHandler) ProcessArticleImages(c *gin.Context) {
 		return
 	}
 
-	// 5. 异步生成音频
 	if articleID > 0 {
 		go h.GenerateAudioForSentences(articleID)
 	}
 
-	// 返回加密后的文章ID
-	encryptedID := utils.EncryptID(articleID)
 	jsonOK(c, "处理成功", gin.H{
-		"resource_id": encryptedID,
+		"resource_id": utils.EncryptID(articleID),
 	})
 }
 
@@ -324,15 +301,6 @@ func (h *ArticleHandler) GenerateAudioForSentences(articleID int64) {
 // ============================================================================
 // 辅助函数
 // ============================================================================
-
-// extractAttachmentPaths 从附件信息中提取路径数组
-func extractAttachmentPaths(attachments []services.ImageAttachmentInfo) []string {
-	paths := make([]string, 0, len(attachments))
-	for _, att := range attachments {
-		paths = append(paths, att.URL)
-	}
-	return paths
-}
 
 // convertAIDataToSentences 将AI返回的结构化数据转换为句子输入
 func convertAIDataToSentences(data [][]string) []services.ArticleSentenceInput {

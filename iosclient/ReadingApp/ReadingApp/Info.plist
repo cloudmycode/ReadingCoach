@@ -10,10 +10,8 @@
 	<key>NSCameraUsageDescription</key>
 	<string>需要访问相机以拍摄文章内容进行解析</string>
 	<key>API_HOST</key>
-	<string>127.0.0.1</string>
-	<key>API_PORT</key>
-	<integer>8080</integer>
+	<string>readingcoach.jingjiangke.com</string>
 	<key>API_SCHEME</key>
-	<string>http</string>
+	<string>https</string>
 </dict>
 </plist>

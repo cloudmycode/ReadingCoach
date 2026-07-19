@@ -18,7 +18,7 @@
 {
   "DeepSeekAPIKey": "your_api_key_here",
   "DeepSeekAPIURL": "https://api.deepseek.com/v1/chat/completions",
-  "DeepSeekModel": "your-vision-capable-model",
+  "DeepSeekModel": "deepseek-chat",
   "MicrosoftTTSKey": "your_microsoft_tts_key",
   "MicrosoftTTSRegion": "eastasia",
   "MicrosoftTTSVoice": "en-US-JennyNeural"
@@ -89,7 +89,7 @@ go build -o server cmd/server/main.go
 ## 🧪 测试功能
 
 1. 启动服务端
-2. 使用客户端上传文章图片
+2. 在客户端拍照并校对文本后提交正文
 3. 检查 DeepSeek 是否返回结构化 TSV 内容
 4. 检查 Microsoft TTS 是否生成句子音频
 

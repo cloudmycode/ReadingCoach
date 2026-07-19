@@ -7,12 +7,12 @@ xcuserdata/
 
 # Server runtime files
 server/config.json
+server/bin/
 server/logs/
-server/server
+server/release/
 
 # Generated attachments
-server/web/static/attachments/articleaudio/
-server/web/static/attachments/uploadimage/
+server/attachments/
 
 # Python cache
 __pycache__/

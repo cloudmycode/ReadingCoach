@@ -3,34 +3,19 @@ package services
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 )
 
-// ArticleAnalysisPrompt 文章图片分析的提示词
-const ArticleAnalysisPrompt = `你是一名英语教师，提取图片中的英文，按句意分解成易于理解的意群，并为每个意群提供中文翻译。
+const ArticleTextAnalysisPrompt = `你是一名英语教师。用户已经在客户端校对过英文正文，请你不要再做OCR识别，只对文本本身进行整理、断句和翻译。
 
 		要求：
-		1. 按意群断句：根据语义拆分成尽可能短的句子易于学习。
-		2. 按照图片顺序解析内容。
-		3. 输出格式：使用TSV格式（制表符分隔），每行一个句子对。
-		   - 每行格式：英文内容<TAB>中文翻译
-		   - 使用制表符（TAB键）分隔英文和中文，不要使用空格或其他字符
-		   - 每行一个句子对，换行表示下一个句子
-		   - 示例：
-		     Hello world	你好世界
-		     How are you	你好吗
-		     I am fine	我很好
-		4. 无内容处理：若图片中无有效英文文章，返回空行或空字符串。
-		
-		重要：
-		- 必须使用制表符（TAB）分隔，不要使用空格、逗号或其他字符
-		- 每行只包含一个句子对，英文和中文之间只有一个制表符
-		- 如果英文或中文中包含换行符，请保留在文本中
-		- 格式简单可靠，不需要引号、转义字符等复杂处理`
+		1. 仅处理用户给出的英文正文，不要补造不存在的内容。
+		2. 去掉明显无意义的空行、重复行和孤立页码；保留正文句子顺序。
+		3. 按句意拆分成尽可能短、便于学习的意群。
+		4. 输出格式必须为TSV：英文内容<TAB>中文翻译。
+		5. 每行一个句子对，不要输出标题说明、编号、Markdown 或 JSON。`
 
 // ArticleSentenceInput 表示待写入 article_sentences 的句子
 type ArticleSentenceInput struct {
@@ -86,25 +71,11 @@ func parseArticleSentencesFromData(data [][]string) ([]ArticleSentenceInput, err
 	return sentences, nil
 }
 
-// marshalAttachmentPaths 将附件路径数组序列化为JSON字符串
-func marshalAttachmentPaths(paths []string) (interface{}, error) {
-	if len(paths) == 0 {
-		return nil, nil
-	}
-	data, err := json.Marshal(paths)
-	if err != nil {
-		return nil, fmt.Errorf("marshal attachment paths: %w", err)
-	}
-	return string(data), nil
-}
-
 // SaveAnalyzedArticle 将 AI 识别结果写入 articles 和 article_sentences
 // 返回 articleID
 func (s *ArticleService) SaveAnalyzedArticle(
 	ctx context.Context,
 	userID int,
-	_ string,
-	attachmentPaths []string,
 	sentences []ArticleSentenceInput,
 ) (int64, error) {
 	if err := s.validateService(); err != nil {
@@ -126,12 +97,6 @@ func (s *ArticleService) SaveAnalyzedArticle(
 		title = string([]rune(title)[:200])
 	}
 
-	// 序列化附件路径
-	attachmentValue, err := marshalAttachmentPaths(attachmentPaths)
-	if err != nil {
-		return 0, err
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("begin transaction: %w", err)
@@ -144,11 +109,10 @@ func (s *ArticleService) SaveAnalyzedArticle(
 
 	articleRes, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO articles (user_id, title, sentence_count, attachment_paths) VALUES (?,?,?,?)`,
+		`INSERT INTO articles (user_id, title, sentence_count) VALUES (?,?,?)`,
 		userID,
 		title,
 		len(sentences),
-		attachmentValue,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert article: %w", err)
@@ -198,11 +162,10 @@ func (s *ArticleService) SaveAnalyzedArticle(
 
 // ArticleDetail 文章详情结构
 type ArticleDetail struct {
-	ArticleID       int64             `json:"article_id"`
-	Title           string            `json:"title"`
-	SentenceCount   int               `json:"sentence_count"`
-	AttachmentPaths []string          `json:"attachment_paths"`
-	Sentences       []ArticleSentence `json:"sentences"`
+	ArticleID     int64             `json:"article_id"`
+	Title         string            `json:"title"`
+	SentenceCount int               `json:"sentence_count"`
+	Sentences     []ArticleSentence `json:"sentences"`
 }
 
 // ArticleSentence 文章句子结构
@@ -237,24 +200,14 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 	// 查询文章基本信息
 	var title string
 	var sentenceCount int
-	var attachmentPathsJSON sql.NullString
 	row := s.db.QueryRowContext(ctx,
-		`SELECT title, sentence_count, attachment_paths FROM articles WHERE article_id = ? AND user_id = ?`,
+		`SELECT title, sentence_count FROM articles WHERE article_id = ? AND user_id = ?`,
 		articleID, userID)
-	if err := row.Scan(&title, &sentenceCount, &attachmentPathsJSON); err != nil {
+	if err := row.Scan(&title, &sentenceCount); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("article not found")
 		}
 		return nil, fmt.Errorf("query article: %w", err)
-	}
-
-	// 解析附件路径
-	var attachmentPaths []string
-	if attachmentPathsJSON.Valid && attachmentPathsJSON.String != "" {
-		if err := json.Unmarshal([]byte(attachmentPathsJSON.String), &attachmentPaths); err != nil {
-			// 附件路径解析失败不影响主流程
-			attachmentPaths = []string{}
-		}
 	}
 
 	// 查询所有句子
@@ -291,56 +244,11 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 	}
 
 	return &ArticleDetail{
-		ArticleID:       articleID,
-		Title:           title,
-		SentenceCount:   sentenceCount,
-		AttachmentPaths: attachmentPaths,
-		Sentences:       sentences,
+		ArticleID:     articleID,
+		Title:         title,
+		SentenceCount: sentenceCount,
+		Sentences:     sentences,
 	}, nil
-}
-
-// UpdateSentenceAudioMeta 更新句子音频的存储信息
-// audioType: "original" 或 "translation"
-// durationMS: 音频时长（毫秒），若 <=0 则不更新 duration 字段
-func (s *ArticleService) UpdateSentenceAudioMeta(ctx context.Context, articleID int64, sentenceOrder int, audioPath string, audioType string, durationMS int) error {
-	if err := s.validateService(); err != nil {
-		return err
-	}
-	if articleID <= 0 || sentenceOrder <= 0 {
-		return fmt.Errorf("invalid article id or sentence order")
-	}
-
-	var (
-		sql  string
-		args []interface{}
-	)
-	switch audioType {
-	case "original":
-		if durationMS > 0 {
-			sql = `UPDATE article_sentences SET original_audio_path = ?, original_audio_duration = ? WHERE article_id = ? AND sentence_order = ?`
-			args = []interface{}{audioPath, durationMS, articleID, sentenceOrder}
-		} else {
-			sql = `UPDATE article_sentences SET original_audio_path = ? WHERE article_id = ? AND sentence_order = ?`
-			args = []interface{}{audioPath, articleID, sentenceOrder}
-		}
-	case "translation":
-		if durationMS > 0 {
-			sql = `UPDATE article_sentences SET translation_audio_path = ?, translation_audio_duration = ? WHERE article_id = ? AND sentence_order = ?`
-			args = []interface{}{audioPath, durationMS, articleID, sentenceOrder}
-		} else {
-			sql = `UPDATE article_sentences SET translation_audio_path = ? WHERE article_id = ? AND sentence_order = ?`
-			args = []interface{}{audioPath, articleID, sentenceOrder}
-		}
-	default:
-		return fmt.Errorf("invalid audio type: %s (must be 'original' or 'translation')", audioType)
-	}
-
-	_, err := s.db.ExecContext(ctx, sql, args...)
-	if err != nil {
-		return fmt.Errorf("update sentence audio path: %w", err)
-	}
-
-	return nil
 }
 
 // SentenceForAudio 用于生成音频的句子信息
@@ -539,42 +447,4 @@ func (s *ArticleService) DeleteArticle(ctx context.Context, articleID int64, use
 	}
 
 	return nil
-}
-
-// articleDataSaver 文章数据保存器实现
-type articleDataSaver struct {
-	service *ArticleService
-}
-
-// NewArticleDataSaver 创建文章数据保存器
-func NewArticleDataSaver(service *ArticleService) ImageDataSaver {
-	return &articleDataSaver{service: service}
-}
-
-// SaveData 保存文章处理结果到数据库
-func (s *articleDataSaver) SaveData(ctx context.Context, userID int, attachments []ImageAttachmentInfo, data [][]string) (int64, error) {
-	// 解析结构化数据（基础层已经解析了TSV格式）
-	sentenceInputs, err := parseArticleSentencesFromData(data)
-	if err != nil {
-		return 0, err
-	}
-
-	if len(sentenceInputs) == 0 {
-		return 0, fmt.Errorf("no valid sentences to save")
-	}
-
-	// 准备附件路径数组
-	attachmentPaths := make([]string, 0, len(attachments))
-	for _, att := range attachments {
-		attachmentPaths = append(attachmentPaths, att.URL)
-	}
-
-	// 生成标题（使用第一张图片的文件名）
-	title := ""
-	if len(attachments) > 0 && attachments[0].OriginalName != "" {
-		title = strings.TrimSuffix(attachments[0].OriginalName, filepath.Ext(attachments[0].OriginalName))
-	}
-
-	// 保存到数据库
-	return s.service.SaveAnalyzedArticle(ctx, userID, title, attachmentPaths, sentenceInputs)
 }

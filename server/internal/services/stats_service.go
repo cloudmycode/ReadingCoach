@@ -36,9 +36,9 @@ func (s *ArticleService) ensureStudyLogTable(ctx context.Context) error {
 			study_date DATE NOT NULL,
 			new_article_count INT NOT NULL DEFAULT 0,
 			review_article_count INT NOT NULL DEFAULT 0,
-			last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			last_active_at DATETIME NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NULL DEFAULT NULL,
 			PRIMARY KEY (id),
 			UNIQUE KEY idx_user_study_date (user_id, study_date),
 			KEY idx_study_date (study_date)

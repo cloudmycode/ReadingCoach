@@ -8,7 +8,7 @@ package database
 
 import (
 	"database/sql"
-	"os"
+	"log"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -16,15 +16,16 @@ import (
 )
 
 func MustOpen(cfg config.Config) *sql.DB {
+	// 连接信息（不含密码），便于排查
+	target := cfg.MySQLUser + "@" + cfg.MySQLHost + ":" + cfg.MySQLPort + "/" + cfg.MySQLDB
+
 	db, err := sql.Open("mysql", cfg.DSN())
 	if err != nil {
-		// 数据库连接失败，直接退出程序
-		os.Exit(1)
+		log.Fatalf("❌ 初始化数据库连接失败 (%s): %v", target, err)
 	}
 
 	if err := db.Ping(); err != nil {
-		// 数据库无法连接，直接退出程序
-		os.Exit(1)
+		log.Fatalf("❌ 数据库连接失败 (%s): %v", target, err)
 	}
 
 	// 数据库连接成功，这个日志会在main.go中记录

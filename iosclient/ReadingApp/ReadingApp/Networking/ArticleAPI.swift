@@ -44,8 +44,16 @@ struct ArticleAPI {
             responseType: EmptyResponse.self
         )
     }
+    
+    func processArticleText(_ text: String) async throws -> AnalyzeImageResponse {
+        return try await networkManager.request(
+            endpoint: "articles/process-text",
+            method: "POST",
+            body: ["text": text],
+            responseType: AnalyzeImageResponse.self
+        )
+    }
 }
 
 // 用于不需要返回数据的响应
 private struct EmptyResponse: Decodable {}
-

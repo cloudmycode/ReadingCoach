@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Reader - Layered Bottom Panel</title>
+    <style>
+        :root {
+            --bg-main: #FFFFFF;
+            --bg-sub: #F8FAFC;        
+            --primary: #0066FF;       
+            --primary-light: #EBF5FF; 
+            --text-dark: #1E293B;     
+            --text-main: #334155;     
+            --text-sub: #94A3B8;      
+            --border: #E2E8F0;        
+            --recording: #EF4444;     
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: #0F172A;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .phone-container {
+            width: 375px;
+            height: 712px;
+            background: var(--bg-main);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 顶部导航栏 */
+        .nav-header {
+            height: 50px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 16px;
+            background: var(--bg-main);
+            position: relative;
+            z-index: 10;
+        }
+        .btn-back {
+            position: absolute; left: 16px;
+            background: none; border: none; color: var(--primary);
+            font-size: 16px; font-weight: 600; cursor: pointer;
+        }
+        .nav-title { font-size: 16px; font-weight: 700; color: var(--text-dark); }
+        .btn-speaker {
+            position: absolute; right: 16px; background: none; border: none;
+            color: var(--text-sub); cursor: pointer; display: flex; align-items: center;
+            transition: all 0.2s ease;
+        }
+        .btn-speaker.active { color: var(--primary); }
+
+        /* ================= 文章正文区（带侧边滚动条） ================= */
+        .article-body {
+            flex: 1;
+            padding: 24px 20px;
+            overflow-y: scroll; /* 始终强制保留滚动条轨道，防止抖动，拥有独立侧边滚动条 */
+            background: var(--bg-main);
+            scroll-behavior: smooth;
+        }
+        
+        .article-p {
+            margin-bottom: 20px;
+        }
+        
+        .sentence-span {
+            font-size: 17px; line-height: 1.7; color: var(--text-dark);
+            padding: 2px 4px; cursor: pointer; border-radius: 6px;
+            display: inline; transition: background-color 0.15s;
+        }
+        .sentence-span.active-highlight {
+            background-color: var(--primary-light);
+            color: var(--primary);
+        }
+
+        /* ================= 核心重构：上层浮动卡片面板 ================= */
+        .interactive-bottom-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: var(--bg-main);
+            /* 关键层级设计：通过圆角、边框与向上微弱投影，营造明显的“上层图层”质感 */
+            border-top-left-radius: 16px;
+            border-top-right-radius: 16px;
+            box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.08); 
+            border-top: 1px solid var(--border);
+            
+            display: flex;
+            flex-direction: column;
+            max-height: 400px;
+            z-index: 99; /* 凌驾于正文之上 */
+            
+            /* 动效：出场更平滑 */
+            transform: translateY(100%); 
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        
+        /* 唤醒浮层状态 */
+        .interactive-bottom-panel.panel-open {
+            transform: translateY(0);
+        }
+
+        /* [新] 右上角关闭按钮容器区 */
+        .panel-header {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            padding: 12px 16px 0 16px;
+            background: transparent;
+        }
+        
+        .btn-close-panel {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            font-size: 18px;
+            cursor: pointer;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.2s;
+        }
+        .btn-close-panel:hover, .btn-close-panel:active {
+            background-color: var(--bg-sub);
+            color: var(--text-dark);
+        }
+
+        /* 面板内部独立的可滚动包装区 */
+        .panel-scroll-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-bottom: 16px;
+        }
+
+        /* 精读学习区 */
+        .study-zone {
+            padding: 4px 20px 12px 20px;
+            display: flex; 
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* 可点击英文单词行 */
+        .word-interactive-sentence {
+            font-size: 14px; line-height: 1.5; color: var(--text-main);
+        }
+        .word-span {
+            display: inline-block; cursor: pointer; padding: 0 2px; border-radius: 3px; transition: all 0.1s;
+        }
+        .word-span:active, .word-span.word-active {
+            color: var(--primary); background-color: var(--primary-light); font-weight: 600;
+        }
+
+        /* 单词即时释义小气泡 */
+        .word-pop-definition {
+            display: none; background: var(--bg-sub); padding: 8px 12px; border-radius: 8px;
+            font-size: 13px; color: var(--text-dark); border-left: 3px solid var(--primary); margin-top: -4px;
+        }
+
+        .study-divider { border-top: 1px dashed var(--border); margin: 4px 0; }
+
+        /* 中文翻译文本 */
+        .trans-content { font-size: 14px; color: var(--text-dark); line-height: 1.5; font-weight: 500; }
+
+        /* 关键词与短语栏 */
+        .analysis-box { display: flex; flex-direction: column; gap: 6px; }
+        .analysis-title { font-size: 11px; font-weight: 700; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px; }
+        .analysis-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+        .analysis-item { font-size: 13px; color: var(--text-main); line-height: 1.4; }
+        .analysis-key { font-weight: 600; color: var(--primary); }
+
+        /* 无边框问答聊天室 */
+        .ai-chat-zone {
+            margin: 0 20px 0 20px; background: transparent; height: 120px; display: flex; flex-direction: column;
+        }
+        .chat-history {
+            flex: 1; padding: 4px 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+        }
+        .chat-bubble { font-size: 13px; line-height: 1.5; padding: 8px 12px; border-radius: 14px; max-width: 85%; }
+        .chat-bubble.ai { background: var(--bg-sub); color: var(--text-dark); align-self: flex-start; border-bottom-left-radius: 4px; }
+        .chat-bubble.user { background: var(--primary); color: #FFFFFF; align-self: flex-end; border-bottom-right-radius: 4px; }
+        
+        /* 极简内嵌输入栏 */
+        .chat-input-bar {
+            padding: 6px 0 0 0; background: transparent; display: flex; position: relative; align-items: center;
+        }
+        .chat-input {
+            flex: 1; border: none; background: var(--bg-sub); border-radius: 20px; padding: 8px 42px 8px 14px;
+            font-size: 13px; outline: none; height: 36px;
+        }
+        .chat-mic-btn {
+            position: absolute; right: 4px; background: none; border: none; color: var(--text-sub); cursor: pointer;
+            display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; transition: all 0.2s ease; z-index: 2;
+        }
+        .chat-mic-btn:active { background: rgba(0, 0, 0, 0.05); }
+        .chat-mic-btn.recording { color: var(--recording); animation: pulse 1.5s infinite; } 
+
+        /* 美化侧边滚动条，维持极简无干扰美感 */
+        .article-body::-webkit-scrollbar, .chat-history::-webkit-scrollbar, .panel-scroll-content::-webkit-scrollbar {
+            width: 5px;
+        }
+        .article-body::-webkit-scrollbar-thumb, .chat-history::-webkit-scrollbar-thumb, .panel-scroll-content::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 10px;
+        }
+        .article-body::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="phone-container">
+
+    <div class="nav-header">
+        <button class="btn-back">〈 Library</button>
+        <div class="nav-title">Last Week on Mars</div>
+        <button class="btn-speaker" id="auto-read-toggle" onclick="toggleAutoRead()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+            </svg>
+        </button>
+    </div>
+
+    <div class="article-body" id="article-scroll-view">
+        <div class="article-p">
+            <span class="sentence-span" id="s1" onclick="clickSentence(1, 'Yesterday, a new space robot landed on Mars.')">
+                Yesterday, a new space robot landed on Mars.
+            </span>
+            <span class="sentence-span" id="s2" onclick="clickSentence(2, 'It will look for water under the dry rocks.')">
+                It will look for water under the dry rocks.
+            </span>
+        </div>
+        
+        <div class="article-p">
+            <span class="sentence-span" id="s3" onclick="clickSentence(3, 'Scientists believe that deep oceans existed here billions of years ago.')">
+                Scientists believe that deep oceans existed here billions of years ago.
+            </span>
+            <span class="sentence-span" id="s4" onclick="clickSentence(4, 'The robot will collect soil samples and take high-resolution photos.')">
+                The robot will collect soil samples and take high-resolution photos.
+            </span>
+        </div>
+
+        <div class="article-p">
+            <span class="sentence-span" id="s5" onclick="clickSentence(5, 'Strong dust storms often cover the red planet during this season.')">
+                Strong dust storms often cover the red planet during this season.
+            </span>
+            <span class="sentence-span" id="s6" onclick="clickSentence(6, 'This makes the mission much more difficult for the engineering team.')">
+                This makes the mission much more difficult for the engineering team.
+            </span>
+            <span class="sentence-span" id="s7" onclick="clickSentence(7, 'However, everyone hopes to find signs of ancient alien life.')">
+                However, everyone hopes to find signs of ancient alien life.
+            </span>
+        </div>
+    </div>
+
+    <div class="interactive-bottom-panel" id="bottom-layer-panel">
+        
+        <div class="panel-header">
+            <button class="btn-close-panel" onclick="closePanel()" title="Close Panel">✕</button>
+        </div>
+
+        <div class="panel-scroll-content">
+            <div class="study-zone">
+                <div class="word-interactive-sentence" id="interactive-sentence-box"></div>
+                <div class="word-pop-definition" id="word-def-box"></div>
+                <div class="study-divider"></div>
+                <div class="trans-content" id="trans-text-box"></div>
+                <div class="analysis-box">
+                    <div class="analysis-title">Keywords & Phrases</div>
+                    <ul class="analysis-list" id="analysis-list-box"></ul>
+                </div>
+            </div>
+
+            <div class="ai-chat-zone">
+                <div class="chat-history" id="chat-history"></div>
+                <div class="chat-input-bar">
+                    <input type="text" class="chat-input" id="chat-input-field" placeholder="Ask AI Teacher...">
+                    <button class="chat-mic-btn" id="chat-mic-btn" onclick="toggleVoiceInput()" title="Voice Input">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="23"></line>
+                            <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+    const sentenceData = {
+        1: { translation: "昨天，一个新的太空机器人降落在了火星上。", analysis: [{ key: "space robot", def: "太空机器人" }, { key: "landed on", def: "着陆于..." }] },
+        2: { translation: "它将在干燥的岩石下寻找水源。", analysis: [{ key: "look for", def: "寻找" }, { key: "dry rocks", def: "干燥的岩石" }] },
+        3: { translation: "科学家们相信，数十亿年前这里曾存在过深邃的海洋。", analysis: [{ key: "believe that", def: "相信..." }, { key: "billions of", def: "数十亿的" }] },
+        4: { translation: "机器人将收集土壤样本并拍摄高分辨率的照片。", analysis: [{ key: "collect", def: "收集" }, { key: "high-resolution", def: "高分辨率" }] },
+        5: { translation: "在这个季节，强烈的沙尘暴经常覆盖这个红色的星球。", analysis: [{ key: "dust storms", def: "沙尘暴" }, { key: "red planet", def: "红色星球 (指火星)" }] },
+        6: { translation: "这使得工程团队的任务变得更加艰难。", analysis: [{ key: "mission", def: "任务/使命" }, { key: "difficult", def: "困难的" }] },
+        7: { translation: "然而，每个人都希望能找到古代外星生命的迹象。", analysis: [{ key: "signs of", def: "…的迹象" }, { key: "ancient", def: "古代的/古老的" }] }
+    };
+
+    const wordDictionary = {
+        yesterday: "ad. 昨天", new: "a. 新的", space: "n. 太空", robot: "n. 机器人", landed: "v. 着陆", mars: "n. 火星",
+        it: "pron. 它", will: "v. 将要", look: "v. 看", for: "prep. 为了", water: "n. 水", under: "prep. 在...下", 
+        the: "art. 这", dry: "a. 干燥的", rocks: "n. 岩石", scientists: "n. 科学家", believe: "v. 相信",
+        that: "conj. 引导", deep: "a. 深的", oceans: "n. 海洋", existed: "v. 存在", here: "ad. 这里",
+        billions: "n. 数十亿", ago: "ad. 以前", collect: "v. 收集", soil: "n. 土壤", samples: "n. 样本",
+        and: "conj. 和", take: "v. 拍摄", 'high-resolution': "a. 高分辨率的", photos: "n. 照片", strong: "a. 强烈的",
+        dust: "n. 灰尘", storms: "n. 暴风雨", often: "ad. 经常", cover: "v. 覆盖", planet: "n. 行星",
+        during: "prep. 在...期间", this: "pron. 这个", season: "n. 季节", makes: "v. 使得", mission: "n. 任务",
+        much: "ad. 更加", more: "ad. 更", difficult: "a. 困难的", engineering: "n. 工程", team: "n. 团队",
+        however: "conj. 然而", everyone: "pron. 每个人", hopes: "v. 希望", find: "v. 寻找", signs: "n. 迹象",
+        ancient: "a. 古老的", alien: "a. 外星的", life: "n. 生命"
+    };
+
+    let isAutoReadEnabled = false;
+    let recognition = null;
+    let isRecording = false;
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;    
+        recognition.interimResults = false; 
+        recognition.lang = 'en-US';         
+
+        recognition.onstart = function() {
+            isRecording = true;
+            document.getElementById('chat-mic-btn').classList.add('recording');
+            document.getElementById('chat-input-field').placeholder = "Listening...";
+        };
+
+        recognition.onend = function() {
+            isRecording = false;
+            document.getElementById('chat-mic-btn').classList.remove('recording');
+            document.getElementById('chat-input-field').placeholder = "Ask AI Teacher...";
+        };
+
+        recognition.onresult = function(event) {
+            const resultText = event.results[0][0].transcript;
+            if (resultText.trim()) { sendUserMessage(resultText); }
+        };
+    }
+
+    function toggleVoiceInput() {
+        if (!recognition) { alert("Speech recognition unsupported."); return; }
+        if (isRecording) { recognition.stop(); } else { window.speechSynthesis.cancel(); recognition.start(); }
+    }
+
+    function toggleAutoRead() {
+        isAutoReadEnabled = !isAutoReadEnabled;
+        const speakerBtn = document.getElementById('auto-read-toggle');
+        if (isAutoReadEnabled) { speakerBtn.classList.add('active'); } else { speakerBtn.classList.remove('active'); window.speechSynthesis.cancel(); }
+    }
+
+    // 点击句子展开浮层
+    function clickSentence(id, text) {
+        document.querySelectorAll('.sentence-span').forEach(el => el.classList.remove('active-highlight'));
+        const activeSentence = document.getElementById(`s${id}`);
+        activeSentence.classList.add('active-highlight');
+
+        // 1. 弹出浮层卡片
+        document.getElementById('bottom-layer-panel').classList.add('panel-open');
+
+        // 2. 动态调整文章位置防止被部分遮挡
+        setTimeout(() => {
+            activeSentence.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 150);
+
+        // 3. 渲染单词、翻译、短语
+        const sentenceBox = document.getElementById('interactive-sentence-box');
+        const words = text.split(' ');
+        sentenceBox.innerHTML = words.map(w => {
+            const cleanWord = w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+            return `<span class="word-span" onclick="clickWord('${cleanWord}', event)">${w}</span>`;
+        }).join(' ');
+
+        document.getElementById('word-def-box').style.display = 'none';
+        document.getElementById('trans-text-box').innerText = sentenceData[id].translation;
+
+        const listBox = document.getElementById('analysis-list-box');
+        listBox.innerHTML = sentenceData[id].analysis.map(item => `
+            <li class="analysis-item"><span class="analysis-key">• ${item.key}</span> : ${item.def}</li>
+        `).join('');
+
+        // 4. 初始化聊天记录
+        const chatHistory = document.getElementById('chat-history');
+        chatHistory.innerHTML = `
+            <div class="chat-bubble ai">Hi! Any questions about sentence #${id}? Speak or type to ask.</div>
+        `;
+
+        if (isAutoReadEnabled) { playAudio(text); }
+    }
+
+    // 点击右上角关闭浮层
+    function closePanel() {
+        document.getElementById('bottom-layer-panel').classList.remove('panel-open');
+        document.querySelectorAll('.sentence-span').forEach(el => el.classList.remove('active-highlight'));
+        window.speechSynthesis.cancel();
+    }
+
+    function clickWord(word, event) {
+        event.stopPropagation();
+        document.querySelectorAll('.word-span').forEach(el => el.classList.remove('word-active'));
+        event.target.classList.add('word-active');
+
+        const defBox = document.getElementById('word-def-box');
+        const cleanKey = word.toLowerCase();
+        const definition = wordDictionary[cleanKey] || "暂无基础释义。";
+        
+        defBox.innerHTML = `<strong>${word}</strong> : ${definition}`;
+        defBox.style.display = 'block';
+    }
+
+    function playAudio(text) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US'; utterance.rate = 0.9;     
+        window.speechSynthesis.speak(utterance);
+    }
+
+    document.getElementById('chat-input-field').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') sendUserMessage();
+    });
+
+    function sendUserMessage(explicitText) {
+        const inputField = document.getElementById('chat-input-field');
+        const text = explicitText || inputField.value.trim();
+        if (!text) return;
+
+        const chatHistory = document.getElementById('chat-history');
+        chatHistory.innerHTML += `<div class="chat-bubble user">${text}</div>`;
+        if (!explicitText) inputField.value = '';
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        setTimeout(() => {
+            chatHistory.innerHTML += `<div class="chat-bubble ai">Got it. Let me help you analyze that further!</div>`;
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }, 800);
+    }
+</script>
+</body>
+</html>

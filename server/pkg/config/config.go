@@ -1,9 +1,4 @@
-// Package config 应用配置管理
-// 功能：
-//   - 从配置文件加载配置参数（如果不存在则生成默认配置）
-//   - 提供数据库连接字符串(DSN)生成
-//   - 设置默认配置值(数据库、JWT密钥等)
-//   - 配置验证和错误处理
+// Package config 应用配置管理。
 package config
 
 import (
@@ -29,16 +24,12 @@ type Config struct {
 	DeepSeekAPIURL string
 	DeepSeekModel  string
 
-	MicrosoftTTSKey    string
-	MicrosoftTTSRegion string
-	MicrosoftTTSVoice  string
-	MicrosoftTTSAPIURL string
+	TTSVoice string
 }
 
 const configFileName = "config.json"
 
-// MustLoadFromEnv 从配置文件加载配置，如果配置文件不存在则生成默认配置
-// 保持函数名不变以保持向后兼容
+// MustLoadFromEnv 从配置文件加载配置，如果配置文件不存在则生成默认配置。
 func MustLoadFromEnv() Config {
 	configPath := configFileName
 
@@ -70,22 +61,19 @@ func MustLoadFromEnv() Config {
 // getDefaultConfig 返回默认配置
 func getDefaultConfig() Config {
 	return Config{
-		HTTPAddr:           ":8080",
-		MySQLHost:          "127.0.0.1",
-		MySQLPort:          "3306",
-		MySQLUser:          "root",
-		MySQLPass:          "change-me",
-		MySQLDB:            "readingcoach",
-		JWTSecret:          "dev-secret-change-me",
-		LogsDir:            "./logs",
-		AttachmentsDir:     "./web/static/attachments",
-		DeepSeekAPIKey:     "replace-with-deepseek-api-key",
-		DeepSeekAPIURL:     "https://api.deepseek.com/v1/chat/completions",
-		DeepSeekModel:      "replace-with-deepseek-vision-model",
-		MicrosoftTTSKey:    "replace-with-microsoft-tts-key",
-		MicrosoftTTSRegion: "eastasia",
-		MicrosoftTTSVoice:  "en-US-JennyNeural",
-		MicrosoftTTSAPIURL: "",
+		HTTPAddr:       ":8080",
+		MySQLHost:      "127.0.0.1",
+		MySQLPort:      "3306",
+		MySQLUser:      "root",
+		MySQLPass:      "change-me",
+		MySQLDB:        "ReadingCoach",
+		JWTSecret:      "dev-secret-change-me",
+		LogsDir:        "./logs",
+		AttachmentsDir: "./attachments",
+		DeepSeekAPIKey: "replace-with-deepseek-api-key",
+		DeepSeekAPIURL: "https://api.deepseek.com/v1/chat/completions",
+		DeepSeekModel:  "deepseek-chat",
+		TTSVoice:       "en-US-JennyNeural",
 	}
 }
 
