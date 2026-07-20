@@ -7,10 +7,9 @@
 
 import Foundation
 import Combine
-import AVFoundation
 
 @MainActor
-final class ArticleDetailViewModel: NSObject, ObservableObject {
+final class ArticleDetailViewModel: ObservableObject {
     @Published var title: String
     @Published var sentences: [ArticleSentence] = []
     @Published var isLoading: Bool = false
@@ -22,26 +21,15 @@ final class ArticleDetailViewModel: NSObject, ObservableObject {
     private let articleId: String
     private var hasLoaded = false
     private var audioTask: Task<Void, Never>?
-    private var audioPlayer: AVAudioPlayer?
-    private var audioContinuation: CheckedContinuation<Void, Error>?
-    private let audioOrder: [SentenceAudioType] = [.original, .translation]
-    
     init(articleId: String, initialTitle: String) {
         self.articleId = articleId
         self.title = initialTitle
-        super.init()
     }
     
     deinit {
-        // 同步清理资源，避免异步任务在对象释放后执行
         audioTask?.cancel()
-        audioTask = nil
-        audioPlayer?.stop()
-        audioPlayer?.delegate = nil  // 关键：清除 delegate 引用，避免崩溃
-        audioPlayer = nil
-        if let continuation = audioContinuation {
-            continuation.resume(throwing: CancellationError())
-            audioContinuation = nil
+        Task { @MainActor in
+            ArticleAudioManager.shared.stop()
         }
     }
     
@@ -65,16 +53,38 @@ final class ArticleDetailViewModel: NSObject, ObservableObject {
         }
     }
     
-    func toggleFavorite(sentence: ArticleSentence) {
-        guard let index = sentences.firstIndex(where: { $0.id == sentence.id }) else { return }
-        sentences[index].isFavorite.toggle()
-        // TODO: 调用后台收藏接口
+    func explainWord(sentenceId: Int, word: String) async throws -> SentenceWordExplanationResponse {
+        if let cached = WordExplanationCacheStore.shared.cachedExplanation(sentenceId: sentenceId, word: word) {
+            return SentenceWordExplanationResponse(
+                word: cached.word.isEmpty ? word : cached.word,
+                partOfSpeech: cached.partOfSpeech,
+                meaning: cached.meaning,
+                tip: cached.tip,
+                sentenceId: sentenceId,
+                articleId: articleId
+            )
+        }
+
+        let response = try await ArticleAPI.shared.explainWord(articleId: articleId, sentenceId: sentenceId, word: word)
+        WordExplanationCacheStore.shared.save(
+            sentenceId: sentenceId,
+            word: response.word.isEmpty ? word : response.word,
+            partOfSpeech: response.partOfSpeech,
+            meaning: response.meaning,
+            tip: response.tip
+        )
+        return response
+    }
+
+    func askQuestion(sentenceId: Int, question: String) async throws -> SentenceQuestionResponse {
+        try await ArticleAPI.shared.askSentence(articleId: articleId, sentenceId: sentenceId, question: question)
     }
     
     func playSentence(at index: Int) {
         guard sentences.indices.contains(index) else { return }
-        guard let sentenceId = sentences[index].sentenceId else {
-            toastMessage = ArticleAudioError.missingSentenceID.errorDescription
+        let sentence = sentences[index]
+        guard !sentence.original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            toastMessage = ArticleAudioError.emptyText.errorDescription
             return
         }
         
@@ -82,7 +92,7 @@ final class ArticleDetailViewModel: NSObject, ObservableObject {
         audioTask = Task {
             do {
                 currentSentenceIndex = index
-                try await playAudio(for: sentenceId, type: .original)
+                try await playText(sentenceId: sentence.sentenceId, sentence.original, type: .original, style: .focusedSentence)
             } catch is CancellationError {
                 // ignore
             } catch {
@@ -120,52 +130,39 @@ final class ArticleDetailViewModel: NSObject, ObservableObject {
     private func playSequence() async {
         for (index, sentence) in sentences.enumerated() {
             if Task.isCancelled { return }
-            guard let sentenceId = sentence.sentenceId else { continue }
             currentSentenceIndex = index
-            
-            for type in audioOrder {
-                if Task.isCancelled { return }
-                do {
-                    try await playAudio(for: sentenceId, type: type)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    toastMessage = error.localizedDescription
-                    break
-                }
+
+            do {
+                try await playText(
+                    sentenceId: sentence.sentenceId,
+                    sentence.original,
+                    type: .original,
+                    style: .continuousReading
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                toastMessage = error.localizedDescription
+                break
             }
         }
         stopVoiceReading(resetPosition: true)
     }
     
-    private func playAudio(for sentenceId: Int, type: SentenceAudioType) async throws {
-        let fileURL = try await ArticleAudioManager.shared.fetchAudioURL(sentenceId: sentenceId, type: type)
-        try await withCheckedThrowingContinuation { continuation in
-            do {
-                let player = try AVAudioPlayer(contentsOf: fileURL)
-                audioPlayer?.stop()
-                audioPlayer = player
-                audioContinuation = continuation
-                currentPlayingType = type
-                player.delegate = self
-                player.prepareToPlay()
-                player.play()
-            } catch {
-                continuation.resume(throwing: ArticleAudioError.playbackFailed)
-            }
-        }
+    private func playText(
+        sentenceId: Int?,
+        _ text: String,
+        type: SentenceAudioType,
+        style: SpeechPlaybackStyle
+    ) async throws {
+        currentPlayingType = type
+        try await ArticleAudioManager.shared.speak(sentenceId: sentenceId, text: text, type: type, style: style)
     }
     
     private func stopVoiceReading(resetPosition: Bool) {
         audioTask?.cancel()
         audioTask = nil
-        audioPlayer?.stop()
-        audioPlayer?.delegate = nil  // 关键：清除 delegate 引用，避免在对象释放后回调导致崩溃
-        audioPlayer = nil
-        if let continuation = audioContinuation {
-            continuation.resume(throwing: CancellationError())
-            audioContinuation = nil
-        }
+        ArticleAudioManager.shared.stop()
         currentPlayingType = nil
         if resetPosition {
             currentSentenceIndex = nil
@@ -173,22 +170,3 @@ final class ArticleDetailViewModel: NSObject, ObservableObject {
         isPlaying = false
     }
 }
-
-extension ArticleDetailViewModel: AVAudioPlayerDelegate {
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        // 安全检查：确保 continuation 存在且有效
-        guard let continuation = audioContinuation else { return }
-        continuation.resume()
-        audioContinuation = nil
-        currentPlayingType = nil
-    }
-    
-    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        // 安全检查：确保 continuation 存在且有效
-        guard let continuation = audioContinuation else { return }
-        continuation.resume(throwing: error ?? ArticleAudioError.playbackFailed)
-        audioContinuation = nil
-        currentPlayingType = nil
-    }
-}
-

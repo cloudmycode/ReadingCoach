@@ -14,3 +14,14 @@ func parseQueryInt(value string, fallback int) int {
 	}
 	return parsed
 }
+
+func parseParamInt64(value string) int64 {
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}

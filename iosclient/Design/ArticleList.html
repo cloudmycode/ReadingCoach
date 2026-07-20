@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Reader - Library</title>
+    <style>
+        :root {
+            --bg-main: #FFFFFF;
+            --bg-sub: #F8FAFC;        
+            --primary: #0066FF;       
+            --text-dark: #1E293B;     
+            --text-sub: #94A3B8;      
+            --border: #F1F5F9;        
+            
+            --tag-blue: #0066FF;
+            --tag-orange: #F59E0B;
+            --tag-green: #10B981;
+            --tag-purple: #8B5CF6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: #0F172A;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .phone-container {
+            width: 375px;
+            height: 712px;
+            background: var(--bg-main);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+        }
+
+        /* 顶部导航与分类区 */
+        .header-zone {
+            background: var(--bg-main);
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+
+        .nav-header {
+            padding: 24px 20px 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-dark);
+            letter-spacing: -0.5px;
+        }
+
+        .btn-add-article {
+            width: 36px;
+            height: 36px;
+            background: var(--bg-sub);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--primary);
+            font-size: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        /* 顶部横向分类栏 */
+        .top-category-bar {
+            height: 48px;
+            display: flex;
+            align-items: center;
+            padding: 0 20px 10px 20px;
+            gap: 8px;
+        }
+
+        .category-scroll-wrapper {
+            flex: 1;
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 2px 0;
+        }
+        .category-scroll-wrapper::-webkit-scrollbar { display: none; } 
+
+        .category-pill {
+            padding: 6px 12px;
+            background: var(--bg-sub);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-dark);
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .category-pill.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #FFFFFF;
+        }
+
+        /* 核心列表区 */
+        .list-container {
+            flex: 1;
+            overflow-y: auto;
+            background: var(--bg-main);
+        }
+
+        .date-divider {
+            background: var(--bg-sub);
+            padding: 6px 20px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .list-item {
+            padding: 16px 20px 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .list-item::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+        }
+
+        .item-title {
+            font-size: 16px; font-weight: 600; color: var(--text-dark); margin-bottom: 4px;
+        }
+
+        .item-desc-meta {
+            font-size: 12px; color: var(--text-sub); display: flex; gap: 12px;
+        }
+
+        /* 右侧状态区：箭头与复选框动态切换 */
+        .item-action-zone {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .arrow-icon { color: #CBD5E1; font-size: 12px; font-weight: 700; }
+        
+        /* 原生圆形复选框样式 */
+        .read-checkbox {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid #CBD5E1;
+            appearance: none;
+            -webkit-appearance: none;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .read-checkbox:checked {
+            background-color: var(--primary);
+            border-color: var(--primary);
+            position: relative;
+        }
+        .read-checkbox:checked::after {
+            content: '✓';
+            color: #FFFFFF;
+            font-size: 12px;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: 700;
+        }
+
+        /* ================= 💡 全新：阅读模式下底部的媒体控制栏 ================= */
+        .media-control-panel {
+            display: none; /* 默认隐藏，进入阅读模式展示 */
+            height: 76px;
+            background: var(--bg-sub);
+            border-top: 1px solid var(--border);
+            align-items: center;
+            justify-content: center;
+            gap: 32px;
+            padding: 0 20px;
+        }
+
+        .media-btn {
+            background: none; border: none; color: var(--text-dark); cursor: pointer;
+            display: flex; align-items: center; justify-content: center; transition: transform 0.1s;
+        }
+        .media-btn:active { transform: scale(0.9); }
+        .media-btn.play-pause {
+            width: 46px; height: 46px; background: var(--primary); color: #FFFFFF; border-radius: 50%;
+        }
+
+        /* 底部 Tab 导航栏 */
+        .bottom-tab-bar {
+            height: 64px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-main);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding-bottom: 4px;
+        }
+
+        .tab-item {
+            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; color: #94A3B8; font-size: 11px; font-weight: 600; gap: 5px; height: 100%;
+        }
+
+        .tab-item svg { stroke: currentColor; fill: none; }
+        .tab-item.active { color: var(--primary); }
+    </style>
+</head>
+<body>
+
+<div class="phone-container">
+
+    <!-- 顶端组合区 -->
+    <div class="header-zone">
+        <div class="nav-header">
+            <h1 class="nav-title" id="page-title">Library</h1>
+            <button class="btn-add-article" onclick="alert('Trigger Add Article Action')">＋</button>
+        </div>
+        
+        <div class="top-category-bar">
+            <div class="category-scroll-wrapper" id="category-wrapper">
+                <div class="category-pill active" onclick="filterCategory('all', this)">全部</div>
+                <div class="category-pill" onclick="filterCategory('阅读理解', this)">阅读理解</div>
+                <div class="category-pill" onclick="filterCategory('卡通绘本', this)">卡通绘本</div>
+                <div class="category-pill" onclick="filterCategory('科技文章', this)">科技文章</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 列表区域 -->
+    <div class="list-container" id="list-container">
+        
+        <div class="date-divider date-group-today">Today</div>
+        
+        <div class="list-item" data-cat="阅读理解" style="--tag-color: var(--tag-blue);">
+            <div>
+                <div class="item-title">Last Week on Mars</div>
+                <div class="item-desc-meta"><span>Added 09:30</span> <span>•</span> <span>185 words</span></div>
+            </div>
+            <div class="item-action-zone">
+                <span class="arrow-icon">➔</span>
+                <input type="checkbox" class="read-checkbox" checked>
+            </div>
+        </div>
+
+        <div class="list-item" data-cat="卡通绘本" style="--tag-color: var(--tag-orange);">
+            <div>
+                <div class="item-title">The Secret Life of Cats</div>
+                <div class="item-desc-meta"><span>Added 08:15</span> <span>•</span> <span>310 words</span></div>
+            </div>
+            <div class="item-action-zone">
+                <span class="arrow-icon">➔</span>
+                <input type="checkbox" class="read-checkbox">
+            </div>
+        </div>
+
+        <div class="date-divider date-group-yesterday">Yesterday</div>
+
+        <div class="list-item" data-cat="科技文章" style="--tag-color: var(--tag-green);">
+            <div>
+                <div class="item-title">Deep Ocean Exploration</div>
+                <div class="item-desc-meta"><span>Yesterday</span> <span>•</span> <span>524 words</span></div>
+            </div>
+            <div class="item-action-zone">
+                <span class="arrow-icon">➔</span>
+                <input type="checkbox" class="read-checkbox" checked>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 💡 【新组件】阅读模式专用的音频媒体控制栏 -->
+    <div class="media-control-panel" id="media-panel">
+        <!-- 上一曲 -->
+        <button class="media-btn" onclick="console.log('Prev Article')" title="上一篇">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+        </button>
+        <!-- 播放/暂停 -->
+        <button class="media-btn play-pause" id="play-btn" onclick="togglePlayState()" title="播放/暂停">
+            <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        </button>
+        <!-- 下一曲 -->
+        <button class="media-btn" onclick="console.log('Next Article')" title="下一篇">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+        </button>
+    </div>
+
+    <!-- 底部 Tab 导航栏 -->
+    <div class="bottom-tab-bar">
+        <!-- 列表 Tab -->
+        <div class="tab-item active" onclick="switchMode('list', this)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+            <span>列表</span>
+        </div>
+        <!-- 💡 阅读 Tab：图标替换成了音频播放的经典三角号 -->
+        <div class="tab-item" onclick="switchMode('read', this)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+            <span>阅读</span>
+        </div>
+        <!-- 设置 Tab -->
+        <div class="tab-item" onclick="switchMode('settings', this)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>设置</span>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // 注入色条背景
+    document.querySelectorAll('.list-item').forEach(item => {
+        item.style.setProperty('--bar-bg', item.style.getPropertyValue('--tag-color'));
+        const sheet = document.styleSheets[0];
+        sheet.insertRule(`.list-item::before { background: var(--bar-bg); }`, sheet.cssRules.length);
+    });
+
+    let currentMode = 'list';
+    let isPlaying = false;
+
+    // 核心切换：普通列表模式 VS 勾选收听阅读模式
+    function switchMode(mode, element) {
+        document.querySelectorAll('.tab-item').forEach(tab => tab.classList.remove('active'));
+        element.classList.add('active');
+        currentMode = mode;
+
+        const arrows = document.querySelectorAll('.arrow-icon');
+        const checkboxes = document.querySelectorAll('.read-checkbox');
+        const mediaPanel = document.getElementById('media-panel');
+        const pageTitle = document.getElementById('page-title');
+
+        if (mode === 'read') {
+            // 进入阅读(收听)模式
+            pageTitle.innerText = "Player Playlist";
+            mediaPanel.style.display = 'flex'; // 唤出媒体控制台
+            arrows.forEach(el => el.style.display = 'none');
+            checkboxes.forEach(el => el.style.display = 'block'); // 显示勾选框
+        } else {
+            // 回归普通列表或设置
+            pageTitle.innerText = mode === 'settings' ? "Settings" : "Library";
+            mediaPanel.style.display = 'none';
+            arrows.forEach(el => el.style.display = 'block');
+            checkboxes.forEach(el => el.style.display = 'none');
+        }
+    }
+
+    // 播放与暂停图标状态切换
+    function togglePlayState() {
+        isPlaying = !isPlaying;
+        const btn = document.getElementById('play-btn');
+        if (isPlaying) {
+            btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
+            console.log("Audio Playing Started...");
+        } else {
+            btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+            console.log("Audio Paused.");
+        }
+    }
+
+    // 分类筛选
+    function filterCategory(category, element) {
+        document.querySelectorAll('.category-pill').forEach(pill => pill.classList.remove('active'));
+        element.classList.add('active');
+        document.querySelectorAll('.list-item').forEach(item => {
+            const itemCat = item.getAttribute('data-cat');
+            item.style.display = (category === 'all' || itemCat === category) ? 'flex' : 'none';
+        });
+    }
+</script>
+</body>
+</html>

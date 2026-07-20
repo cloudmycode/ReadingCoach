@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Smart Reader - Layered Bottom Panel</title>
+    <title>Smart Reader - Interactive Flow</title>
     <style>
         :root {
             --bg-main: #FFFFFF;
@@ -69,13 +69,19 @@
         }
         .btn-speaker.active { color: var(--primary); }
 
-        /* ================= 文章正文区（带侧边滚动条） ================= */
+        /* ================= 文章正文区 ================= */
         .article-body {
             flex: 1;
             padding: 24px 20px;
-            overflow-y: scroll; /* 始终强制保留滚动条轨道，防止抖动，拥有独立侧边滚动条 */
+            overflow-y: scroll;
             background: var(--bg-main);
             scroll-behavior: smooth;
+            transition: padding-bottom 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        
+        /* 弹窗激活时防遮挡内边距 */
+        .article-body.has-panel-padding {
+            padding-bottom: 390px; 
         }
         
         .article-p {
@@ -92,155 +98,142 @@
             color: var(--primary);
         }
 
-        /* ================= 核心重构：上层浮动卡片面板 ================= */
+        /* ================= 上层浮动卡片面板 ================= */
         .interactive-bottom-panel {
             position: absolute;
             bottom: 0;
             left: 0;
             width: 100%;
             background: var(--bg-main);
-            /* 关键层级设计：通过圆角、边框与向上微弱投影，营造明显的“上层图层”质感 */
             border-top-left-radius: 16px;
             border-top-right-radius: 16px;
-            box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.08); 
+            box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.12); 
             border-top: 1px solid var(--border);
             
             display: flex;
             flex-direction: column;
-            max-height: 400px;
-            z-index: 99; /* 凌驾于正文之上 */
+            max-height: 380px;
+            height: 380px; 
+            z-index: 99; 
             
-            /* 动效：出场更平滑 */
             transform: translateY(100%); 
             transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
         }
         
-        /* 唤醒浮层状态 */
         .interactive-bottom-panel.panel-open {
             transform: translateY(0);
         }
 
-        /* [新] 右上角关闭按钮容器区 */
+        /* 关闭按钮区 */
         .panel-header {
             display: flex;
             justify-content: flex-end;
             align-items: center;
-            padding: 12px 16px 0 16px;
+            padding: 12px 16px 4px 16px;
             background: transparent;
         }
         
         .btn-close-panel {
-            background: none;
-            border: none;
-            color: var(--text-sub);
-            font-size: 18px;
-            cursor: pointer;
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: background-color 0.2s;
+            background: none; border: none; color: var(--text-sub); font-size: 18px; cursor: pointer;
+            width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+            border-radius: 50%; transition: background-color 0.2s;
         }
-        .btn-close-panel:hover, .btn-close-panel:active {
-            background-color: var(--bg-sub);
-            color: var(--text-dark);
-        }
+        .btn-close-panel:active { background-color: var(--bg-sub); color: var(--text-dark); }
 
-        /* 面板内部独立的可滚动包装区 */
+        /* 面板内部独立包装区 */
         .panel-scroll-content {
             flex: 1;
-            overflow-y: auto;
-            padding-bottom: 16px;
+            overflow-y: hidden; /* 由下方的 chat-zone 自身去滚动 */
+            display: flex;
+            flex-direction: column;
         }
 
-        /* 精读学习区 */
-        .study-zone {
-            padding: 4px 20px 12px 20px;
+        /* 单词点击即时交互区 */
+        .word-interactive-zone {
+            padding: 0 20px 8px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .word-interactive-sentence { font-size: 14px; line-height: 1.5; color: var(--text-main); }
+        .word-span { display: inline-block; cursor: pointer; padding: 0 2px; border-radius: 3px; transition: all 0.1s; }
+        .word-span:active, .word-span.word-active { color: var(--primary); background-color: var(--primary-light); font-weight: 600; }
+        .word-pop-definition { display: none; background: var(--bg-sub); padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--text-dark); border-left: 3px solid var(--primary); }
+
+        /* ================= 融合一体的现代化对话区 ================= */
+        .ai-chat-zone { 
+            flex: 1;
+            margin: 0 20px 16px 20px; 
+            background: transparent; 
             display: flex; 
             flex-direction: column;
-            gap: 12px;
+            overflow: hidden;
         }
-
-        /* 可点击英文单词行 */
-        .word-interactive-sentence {
-            font-size: 14px; line-height: 1.5; color: var(--text-main);
-        }
-        .word-span {
-            display: inline-block; cursor: pointer; padding: 0 2px; border-radius: 3px; transition: all 0.1s;
-        }
-        .word-span:active, .word-span.word-active {
-            color: var(--primary); background-color: var(--primary-light); font-weight: 600;
-        }
-
-        /* 单词即时释义小气泡 */
-        .word-pop-definition {
-            display: none; background: var(--bg-sub); padding: 8px 12px; border-radius: 8px;
-            font-size: 13px; color: var(--text-dark); border-left: 3px solid var(--primary); margin-top: -4px;
-        }
-
-        .study-divider { border-top: 1px dashed var(--border); margin: 4px 0; }
-
-        /* 中文翻译文本 */
-        .trans-content { font-size: 14px; color: var(--text-dark); line-height: 1.5; font-weight: 500; }
-
-        /* 关键词与短语栏 */
-        .analysis-box { display: flex; flex-direction: column; gap: 6px; }
-        .analysis-title { font-size: 11px; font-weight: 700; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.5px; }
-        .analysis-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-        .analysis-item { font-size: 13px; color: var(--text-main); line-height: 1.4; }
-        .analysis-key { font-weight: 600; color: var(--primary); }
-
-        /* 无边框问答聊天室 */
-        .ai-chat-zone {
-            margin: 0 20px 0 20px; background: transparent; height: 120px; display: flex; flex-direction: column;
-        }
-        .chat-history {
-            flex: 1; padding: 4px 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
-        }
-        .chat-bubble { font-size: 13px; line-height: 1.5; padding: 8px 12px; border-radius: 14px; max-width: 85%; }
-        .chat-bubble.ai { background: var(--bg-sub); color: var(--text-dark); align-self: flex-start; border-bottom-left-radius: 4px; }
+        .chat-history { flex: 1; padding: 4px 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+        
+        /* 聊天气泡通用样式 */
+        .chat-bubble { font-size: 13px; line-height: 1.5; padding: 10px 14px; border-radius: 14px; max-width: 90%; }
         .chat-bubble.user { background: var(--primary); color: #FFFFFF; align-self: flex-end; border-bottom-right-radius: 4px; }
         
+        /* AI 的解读大卡片气泡 */
+        .chat-bubble.ai-interpretation {
+            background: var(--bg-sub); 
+            color: var(--text-dark); 
+            align-self: flex-start; 
+            border-bottom-left-radius: 4px;
+            width: 100%;
+        }
+        .interpretation-trans {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-dark);
+            margin-bottom: 10px;
+        }
+        .interpretation-analysis {
+            border-top: 1px dashed var(--border);
+            padding-top: 8px;
+        }
+        .analysis-title { 
+            font-size: 10px; 
+            font-weight: 700; 
+            color: var(--text-sub); 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .analysis-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+        .analysis-item { font-size: 12px; color: var(--text-main); }
+        .analysis-key { font-weight: 600; color: var(--primary); }
+
+        /* 普通的 AI 问答小气泡 */
+        .chat-bubble.ai-mini {
+            background: var(--bg-sub); color: var(--text-dark); align-self: flex-start; border-bottom-left-radius: 4px;
+        }
+        
         /* 极简内嵌输入栏 */
-        .chat-input-bar {
-            padding: 6px 0 0 0; background: transparent; display: flex; position: relative; align-items: center;
-        }
-        .chat-input {
-            flex: 1; border: none; background: var(--bg-sub); border-radius: 20px; padding: 8px 42px 8px 14px;
-            font-size: 13px; outline: none; height: 36px;
-        }
-        .chat-mic-btn {
-            position: absolute; right: 4px; background: none; border: none; color: var(--text-sub); cursor: pointer;
-            display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; transition: all 0.2s ease; z-index: 2;
-        }
+        .chat-input-bar { padding: 8px 0 0 0; background: transparent; display: flex; position: relative; align-items: center; }
+        .chat-input { flex: 1; border: none; background: var(--bg-sub); border-radius: 20px; padding: 8px 42px 8px 14px; font-size: 13px; outline: none; height: 36px; }
+        .chat-mic-btn { position: absolute; right: 4px; background: none; border: none; color: var(--text-sub); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; transition: all 0.2s ease; z-index: 2; }
         .chat-mic-btn:active { background: rgba(0, 0, 0, 0.05); }
         .chat-mic-btn.recording { color: var(--recording); animation: pulse 1.5s infinite; } 
 
-        /* 美化侧边滚动条，维持极简无干扰美感 */
-        .article-body::-webkit-scrollbar, .chat-history::-webkit-scrollbar, .panel-scroll-content::-webkit-scrollbar {
+        /* 优化侧边滚动条 */
+        .article-body::-webkit-scrollbar, .chat-history::-webkit-scrollbar {
             width: 5px;
         }
-        .article-body::-webkit-scrollbar-thumb, .chat-history::-webkit-scrollbar-thumb, .panel-scroll-content::-webkit-scrollbar-thumb {
-            background: #CBD5E1;
-            border-radius: 10px;
+        .article-body::-webkit-scrollbar-thumb, .chat-history::-webkit-scrollbar-thumb {
+            background: #CBD5E1; border-radius: 10px;
         }
-        .article-body::-webkit-scrollbar-track {
-            background: transparent;
-        }
+        .article-body::-webkit-scrollbar-track { background: transparent; }
 
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
 <div class="phone-container">
 
+    <!-- 顶部 -->
     <div class="nav-header">
         <button class="btn-back">〈 Library</button>
         <div class="nav-title">Last Week on Mars</div>
@@ -253,6 +246,7 @@
         </button>
     </div>
 
+    <!-- 可滚动长正文 -->
     <div class="article-body" id="article-scroll-view">
         <div class="article-p">
             <span class="sentence-span" id="s1" onclick="clickSentence(1, 'Yesterday, a new space robot landed on Mars.')">
@@ -285,24 +279,23 @@
         </div>
     </div>
 
+    <!-- 上层浮动卡片面板 -->
     <div class="interactive-bottom-panel" id="bottom-layer-panel">
         
+        <!-- 面板头部：关闭按钮 -->
         <div class="panel-header">
             <button class="btn-close-panel" onclick="closePanel()" title="Close Panel">✕</button>
         </div>
 
+        <!-- 面板内部独立包装区 -->
         <div class="panel-scroll-content">
-            <div class="study-zone">
+            <!-- 单词轻触即解交互区 -->
+            <div class="word-interactive-zone">
                 <div class="word-interactive-sentence" id="interactive-sentence-box"></div>
                 <div class="word-pop-definition" id="word-def-box"></div>
-                <div class="study-divider"></div>
-                <div class="trans-content" id="trans-text-box"></div>
-                <div class="analysis-box">
-                    <div class="analysis-title">Keywords & Phrases</div>
-                    <ul class="analysis-list" id="analysis-list-box"></ul>
-                </div>
             </div>
 
+            <!-- 融合在一起的全新聊天对话流 -->
             <div class="ai-chat-zone">
                 <div class="chat-history" id="chat-history"></div>
                 <div class="chat-input-bar">
@@ -364,13 +357,11 @@
             document.getElementById('chat-mic-btn').classList.add('recording');
             document.getElementById('chat-input-field').placeholder = "Listening...";
         };
-
         recognition.onend = function() {
             isRecording = false;
             document.getElementById('chat-mic-btn').classList.remove('recording');
             document.getElementById('chat-input-field').placeholder = "Ask AI Teacher...";
         };
-
         recognition.onresult = function(event) {
             const resultText = event.results[0][0].transcript;
             if (resultText.trim()) { sendUserMessage(resultText); }
@@ -388,48 +379,58 @@
         if (isAutoReadEnabled) { speakerBtn.classList.add('active'); } else { speakerBtn.classList.remove('active'); window.speechSynthesis.cancel(); }
     }
 
-    // 点击句子展开浮层
+    // 点击句子激活浮层，在聊天区直接拼接气泡
     function clickSentence(id, text) {
         document.querySelectorAll('.sentence-span').forEach(el => el.classList.remove('active-highlight'));
         const activeSentence = document.getElementById(`s${id}`);
         activeSentence.classList.add('active-highlight');
 
-        // 1. 弹出浮层卡片
+        // 1. 正文加间距防遮挡
+        document.getElementById('article-scroll-view').classList.add('has-panel-padding');
+
+        // 2. 呼出浮层卡片
         document.getElementById('bottom-layer-panel').classList.add('panel-open');
 
-        // 2. 动态调整文章位置防止被部分遮挡
+        // 3. 滚动句子到正中央
         setTimeout(() => {
             activeSentence.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 150);
+        }, 180);
 
-        // 3. 渲染单词、翻译、短语
+        // 4. 单字点拨组件更新
         const sentenceBox = document.getElementById('interactive-sentence-box');
         const words = text.split(' ');
         sentenceBox.innerHTML = words.map(w => {
             const cleanWord = w.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
             return `<span class="word-span" onclick="clickWord('${cleanWord}', event)">${w}</span>`;
         }).join(' ');
-
         document.getElementById('word-def-box').style.display = 'none';
-        document.getElementById('trans-text-box').innerText = sentenceData[id].translation;
 
-        const listBox = document.getElementById('analysis-list-box');
-        listBox.innerHTML = sentenceData[id].analysis.map(item => `
+        // 5. 【核心重构】将翻译和短语打包拼装成 AI 的“第一条解读气泡”
+        const currentData = sentenceData[id];
+        const analysisHtml = currentData.analysis.map(item => `
             <li class="analysis-item"><span class="analysis-key">• ${item.key}</span> : ${item.def}</li>
         `).join('');
 
-        // 4. 初始化聊天记录
         const chatHistory = document.getElementById('chat-history');
         chatHistory.innerHTML = `
-            <div class="chat-bubble ai">Hi! Any questions about sentence #${id}? Speak or type to ask.</div>
+            <div class="chat-bubble ai-interpretation">
+                <div class="interpretation-trans">“ ${currentData.translation} ”</div>
+                <div class="interpretation-analysis">
+                    <div class="analysis-title">Keywords & Phrases</div>
+                    <ul class="analysis-list">${analysisHtml}</ul>
+                </div>
+            </div>
+            <div class="chat-bubble ai-mini" style="margin-top: 4px;">💡 上面是这句话的精读解析。如果对语法或用法还有疑问，随时在这里问我哦！</div>
         `;
+        
+        chatHistory.scrollTop = 0; // 重置聊天历史滚动条到最顶部
 
         if (isAutoReadEnabled) { playAudio(text); }
     }
 
-    // 点击右上角关闭浮层
     function closePanel() {
         document.getElementById('bottom-layer-panel').classList.remove('panel-open');
+        document.getElementById('article-scroll-view').classList.remove('has-panel-padding');
         document.querySelectorAll('.sentence-span').forEach(el => el.classList.remove('active-highlight'));
         window.speechSynthesis.cancel();
     }
@@ -469,7 +470,7 @@
         chatHistory.scrollTop = chatHistory.scrollHeight;
 
         setTimeout(() => {
-            chatHistory.innerHTML += `<div class="chat-bubble ai">Got it. Let me help you analyze that further!</div>`;
+            chatHistory.innerHTML += `<div class="chat-bubble ai-mini">明白！让我来为你做进一步拓展：在这个语境下……</div>`;
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }, 800);
     }

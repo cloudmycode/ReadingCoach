@@ -4,18 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
 
-const ArticleTextAnalysisPrompt = `你是一名英语教师。用户已经在客户端校对过英文正文，请你不要再做OCR识别，只对文本本身进行整理、断句和翻译。
+const ArticleTextAnalysisPrompt = `把正文按顺序整理成适合学习的短句，并逐句翻译成中文。
+只处理用户提供的内容，不补写，不输出说明。
+输出 TSV，每行格式：英文<TAB>中文。`
 
-		要求：
-		1. 仅处理用户给出的英文正文，不要补造不存在的内容。
-		2. 去掉明显无意义的空行、重复行和孤立页码；保留正文句子顺序。
-		3. 按句意拆分成尽可能短、便于学习的意群。
-		4. 输出格式必须为TSV：英文内容<TAB>中文翻译。
-		5. 每行一个句子对，不要输出标题说明、编号、Markdown 或 JSON。`
+const WordExplainPromptTemplate = `解释用户在当前句子里点击的单词。
+只返回 JSON：
+{"word":"单词","part_of_speech":"词性","meaning":"当前句中的中文意思","tip":"结合当前句子的简短提示"}`
+
+const SentenceCoachPromptTemplate = `回答用户关于当前句子的问题。
+只返回 JSON：
+{"answer":"简洁中文回答","highlights":["要点1","要点2"]}`
 
 // ArticleSentenceInput 表示待写入 article_sentences 的句子
 type ArticleSentenceInput struct {
@@ -179,13 +183,13 @@ type ArticleSentence struct {
 
 // ArticleSummary 文章列表项
 type ArticleSummary struct {
-	ArticleID        int64      `json:"article_id"`
-	Title            string     `json:"title"`
-	SentenceCount    int        `json:"sentence_count"`
-	ReadCount        int        `json:"read_count"`
-	SentenceDuration int        `json:"sentence_duration"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastReadAt       *time.Time `json:"last_read_at,omitempty"`
+	ArticleID     int64      `json:"article_id"`
+	Title         string     `json:"title"`
+	SentenceCount int        `json:"sentence_count"`
+	WordCount     int        `json:"word_count"`
+	ReadCount     int        `json:"read_count"`
+	CreatedAt     time.Time  `json:"created_at"`
+	LastReadAt    *time.Time `json:"last_read_at,omitempty"`
 }
 
 // GetArticleDetail 根据文章ID获取文章详情（包括所有句子）
@@ -251,71 +255,193 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 	}, nil
 }
 
-// SentenceForAudio 用于生成音频的句子信息
-type SentenceForAudio struct {
-	SentenceID  int64
-	Original    string
-	Translation string
+type SentenceStudyContext struct {
+	ArticleID    int64
+	ArticleTitle string
+	SentenceID   int64
+	Order        int
+	Original     string
+	Translation  string
+}
+
+type CachedWordExplanation struct {
+	SentenceID     int64
+	NormalizedWord string
+	Word           string
+	PartOfSpeech   string
+	Meaning        string
+	Tip            string
 }
 
 // GetArticleSentencesForAudio 根据文章ID获取所有句子信息（用于生成音频）
-func (s *ArticleService) GetArticleSentencesForAudio(ctx context.Context, articleID int64) ([]SentenceForAudio, error) {
+func (s *ArticleService) GetSentenceStudyContext(ctx context.Context, articleID, sentenceID int64, userID int) (*SentenceStudyContext, error) {
 	if err := s.validateService(); err != nil {
 		return nil, err
 	}
-	if articleID <= 0 {
-		return nil, fmt.Errorf("invalid article id")
+	if articleID <= 0 || sentenceID <= 0 || userID <= 0 {
+		return nil, fmt.Errorf("invalid article id, sentence id or user id")
 	}
 
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT sentence_id, original_text, translation 
-		 FROM article_sentences 
-		 WHERE article_id = ? 
-		 ORDER BY sentence_order ASC`,
-		articleID)
-	if err != nil {
-		return nil, fmt.Errorf("query sentences: %w", err)
-	}
-	defer rows.Close()
+	row := s.db.QueryRowContext(ctx, `
+		SELECT a.article_id, a.title, s.sentence_id, s.sentence_order, s.original_text, s.translation
+		FROM articles a
+		JOIN article_sentences s ON s.article_id = a.article_id
+		WHERE a.article_id = ? AND s.sentence_id = ? AND a.user_id = ?
+	`, articleID, sentenceID, userID)
 
-	var sentences []SentenceForAudio
-	for rows.Next() {
-		var sID int64
-		var original, translation string
-		if err := rows.Scan(&sID, &original, &translation); err != nil {
-			return nil, fmt.Errorf("scan sentence: %w", err)
+	var result SentenceStudyContext
+	if err := row.Scan(
+		&result.ArticleID,
+		&result.ArticleTitle,
+		&result.SentenceID,
+		&result.Order,
+		&result.Original,
+		&result.Translation,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("sentence not found")
 		}
-		sentences = append(sentences, SentenceForAudio{
-			SentenceID:  sID,
-			Original:    original,
-			Translation: translation,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sentences: %w", err)
+		return nil, fmt.Errorf("query sentence context: %w", err)
 	}
 
-	return sentences, nil
+	return &result, nil
 }
 
-// UpdateArticleAudioStats 更新文章的句子数量与总句子时长
-func (s *ArticleService) UpdateArticleAudioStats(ctx context.Context, articleID int64, sentenceCount int, sentenceDurationMS int) error {
+func (s *ArticleService) EnsureWordExplanationCacheTable(ctx context.Context) error {
 	if err := s.validateService(); err != nil {
 		return err
 	}
-	if articleID <= 0 {
-		return fmt.Errorf("invalid article id")
+
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS word_explanations_cache (
+			cache_id INT NOT NULL AUTO_INCREMENT,
+			sentence_id BIGINT NOT NULL DEFAULT 0,
+			normalized_word VARCHAR(128) NOT NULL,
+			word VARCHAR(128) NOT NULL DEFAULT '',
+			part_of_speech VARCHAR(32) NOT NULL DEFAULT '',
+			meaning TEXT NOT NULL,
+			tip TEXT NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NULL DEFAULT NULL,
+			PRIMARY KEY (cache_id),
+			UNIQUE KEY idx_sentence_word (sentence_id, normalized_word)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`)
+	if err != nil {
+		return fmt.Errorf("ensure word explanation cache table: %w", err)
 	}
 
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE articles SET sentence_count = ?, sentence_duration = ? WHERE article_id = ?`,
-		sentenceCount, sentenceDurationMS, articleID,
-	)
-	if err != nil {
-		return fmt.Errorf("update article audio stats: %w", err)
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE word_explanations_cache ADD COLUMN sentence_id BIGINT NOT NULL DEFAULT 0 AFTER cache_id`); err != nil && !isIgnorableSchemaError(err) {
+		return fmt.Errorf("ensure sentence_id column on word explanation cache: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE word_explanations_cache DROP INDEX idx_normalized_word`); err != nil && !isIgnorableSchemaError(err) {
+		return fmt.Errorf("drop legacy normalized_word index: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE word_explanations_cache ADD UNIQUE KEY idx_sentence_word (sentence_id, normalized_word)`); err != nil && !isIgnorableSchemaError(err) {
+		return fmt.Errorf("ensure sentence_id + normalized_word unique index: %w", err)
 	}
 
 	return nil
+}
+
+func (s *ArticleService) NormalizeWord(word string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(word))
+	return strings.Trim(trimmed, " \t\r\n.,!?;:\"'()[]{}<>")
+}
+
+func (s *ArticleService) GetCachedWordExplanation(ctx context.Context, sentenceID int64, word string) (*CachedWordExplanation, error) {
+	if err := s.validateService(); err != nil {
+		return nil, err
+	}
+	if sentenceID <= 0 {
+		return nil, nil
+	}
+
+	normalized := s.NormalizeWord(word)
+	if normalized == "" {
+		return nil, nil
+	}
+
+	if cached, err := s.getWordExplanationFromCacheTable(ctx, sentenceID, normalized); err != nil {
+		return nil, err
+	} else if cached != nil {
+		return cached, nil
+	}
+	return nil, nil
+}
+
+func (s *ArticleService) SaveCachedWordExplanation(ctx context.Context, explanation CachedWordExplanation) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	if explanation.SentenceID <= 0 {
+		return fmt.Errorf("sentence id is empty")
+	}
+
+	normalized := s.NormalizeWord(explanation.NormalizedWord)
+	if normalized == "" {
+		normalized = s.NormalizeWord(explanation.Word)
+	}
+	if normalized == "" {
+		return fmt.Errorf("normalized word is empty")
+	}
+
+	word := strings.TrimSpace(explanation.Word)
+	if word == "" {
+		word = normalized
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO word_explanations_cache (sentence_id, normalized_word, word, part_of_speech, meaning, tip, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, NOW())
+		ON DUPLICATE KEY UPDATE
+			word = VALUES(word),
+			part_of_speech = VALUES(part_of_speech),
+			meaning = VALUES(meaning),
+			tip = VALUES(tip),
+			updated_at = NOW()
+	`, explanation.SentenceID, normalized, word, strings.TrimSpace(explanation.PartOfSpeech), strings.TrimSpace(explanation.Meaning), strings.TrimSpace(explanation.Tip))
+	if err != nil {
+		return fmt.Errorf("save cached word explanation: %w", err)
+	}
+	return nil
+}
+
+func (s *ArticleService) getWordExplanationFromCacheTable(ctx context.Context, sentenceID int64, normalizedWord string) (*CachedWordExplanation, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT sentence_id, normalized_word, word, part_of_speech, meaning, tip
+		FROM word_explanations_cache
+		WHERE sentence_id = ? AND normalized_word = ?
+		LIMIT 1
+	`, sentenceID, normalizedWord)
+
+	var result CachedWordExplanation
+	if err := row.Scan(
+		&result.SentenceID,
+		&result.NormalizedWord,
+		&result.Word,
+		&result.PartOfSpeech,
+		&result.Meaning,
+		&result.Tip,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query word explanation cache: %w", err)
+	}
+	return &result, nil
+}
+
+func isIgnorableSchemaError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "duplicate column") ||
+		strings.Contains(message, "duplicate key name") ||
+		strings.Contains(message, "check that column/key exists") ||
+		strings.Contains(message, "can't drop") ||
+		strings.Contains(message, "already exists")
 }
 
 // UpdateArticleReadStats 更新文章阅读统计
@@ -362,7 +488,6 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 			title,
 			sentence_count,
 			read_count,
-			IFNULL(sentence_duration, 0) AS sentence_duration,
 			created_at,
 			last_read_at
 		FROM articles
@@ -378,21 +503,16 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 	var summaries []ArticleSummary
 	for rows.Next() {
 		var summary ArticleSummary
-		var duration sql.NullInt64
 		var lastRead sql.NullTime
 		if err := rows.Scan(
 			&summary.ArticleID,
 			&summary.Title,
 			&summary.SentenceCount,
 			&summary.ReadCount,
-			&duration,
 			&summary.CreatedAt,
 			&lastRead,
 		); err != nil {
 			return nil, fmt.Errorf("scan article: %w", err)
-		}
-		if duration.Valid {
-			summary.SentenceDuration = int(duration.Int64)
 		}
 		if lastRead.Valid {
 			t := lastRead.Time
@@ -403,8 +523,59 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate articles: %w", err)
 	}
+	if err := s.populateArticleWordCounts(ctx, summaries); err != nil {
+		return nil, err
+	}
 
 	return summaries, nil
+}
+
+var articleWordPattern = regexp.MustCompile(`[A-Za-z]+(?:'[A-Za-z]+)?`)
+
+func (s *ArticleService) populateArticleWordCounts(ctx context.Context, summaries []ArticleSummary) error {
+	if len(summaries) == 0 {
+		return nil
+	}
+
+	ids := make([]any, 0, len(summaries))
+	placeholders := make([]string, 0, len(summaries))
+	indexByArticleID := make(map[int64]int, len(summaries))
+	for index, summary := range summaries {
+		ids = append(ids, summary.ArticleID)
+		placeholders = append(placeholders, "?")
+		indexByArticleID[summary.ArticleID] = index
+	}
+
+	query := fmt.Sprintf(
+		`SELECT article_id, original_text FROM article_sentences WHERE article_id IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	rows, err := s.db.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return fmt.Errorf("query article sentences for word count: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int, len(summaries))
+	for rows.Next() {
+		var articleID int64
+		var original string
+		if err := rows.Scan(&articleID, &original); err != nil {
+			return fmt.Errorf("scan article sentence word count: %w", err)
+		}
+		counts[articleID] += len(articleWordPattern.FindAllString(original, -1))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate article sentences for word count: %w", err)
+	}
+
+	for articleID, count := range counts {
+		if index, ok := indexByArticleID[articleID]; ok {
+			summaries[index].WordCount = count
+		}
+	}
+
+	return nil
 }
 
 // DeleteArticle 删除用户自己的文章及其句子数据。

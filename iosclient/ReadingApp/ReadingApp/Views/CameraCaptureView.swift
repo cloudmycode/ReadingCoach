@@ -4,19 +4,8 @@
 //
 //  Created by GPT-5.1 Codex on 2025/11/27.
 //
-//  通用拍照组件，支持拍照、选择照片、预览、裁剪、旋转等功能
-//  使用方式：
-//  CameraCaptureView(
-//      onSubmit: { uploadItems in
-//          // 处理图片上传，返回结果标识符
-//          let response = try await YourAPI.analyzeImages(uploadItems)
-//          return response.resultId
-//      },
-//      onSuccess: { resultId in
-//          // 处理成功后的逻辑
-//          print("处理成功，结果ID: \(resultId)")
-//      }
-//  )
+//  通用拍照组件，支持拍照、选择照片、预览、裁剪、旋转等功能。
+//  调用方可自行决定如何处理裁剪后的照片，例如本地 OCR、拼接文本或上传到服务端。
 
 import SwiftUI
 import AVFoundation
@@ -43,9 +32,9 @@ struct CameraCaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: CameraViewModel
     
-    /// 提交图片的回调函数
-    /// - Parameter uploadItems: 要上传的图片数据
-    /// - Returns: 成功时返回结果标识符（如文章ID），失败时返回 nil
+    /// 处理照片的回调函数
+    /// - Parameter uploadItems: 裁剪和整理后的照片数据
+    /// - Returns: 成功时返回结果标识符，失败时返回 nil
     let onSubmit: ([PhotoUploadItem]) async throws -> String?
     
     /// 提交成功后的回调
@@ -54,7 +43,7 @@ struct CameraCaptureView: View {
     
     /// 初始化通用拍照组件
     /// - Parameters:
-    ///   - onSubmit: 提交图片的处理函数，接收图片数据并返回结果标识符
+    ///   - onSubmit: 照片处理函数，接收整理后的图片数据并返回结果标识符
     ///   - onSuccess: 提交成功后的回调，接收结果标识符
     init(
         onSubmit: @escaping ([PhotoUploadItem]) async throws -> String?,
@@ -237,9 +226,9 @@ struct CameraCaptureView: View {
                     }
                     
                     Button {
-                        handleProcess()
-                    } label: {
-                        Text("处理图片")
+                    handleProcess()
+                } label: {
+                        Text("处理照片")
                             .font(.subheadline)
                             .fontWeight(.medium)
                             .foregroundColor(.white)
@@ -1581,5 +1570,4 @@ struct PhotoPickerView: UIViewControllerRepresentable {
         }
     }
 }
-
 

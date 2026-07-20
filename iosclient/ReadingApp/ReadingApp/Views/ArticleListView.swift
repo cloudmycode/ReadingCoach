@@ -12,54 +12,32 @@ enum ArticleRoute: Hashable {
     case cameraResult(String)
 }
 
+private struct ArticleSectionGroup: Identifiable {
+    let id: String
+    let title: String
+    let articles: [ArticleItem]
+}
+
 struct ArticleListView: View {
     @StateObject private var viewModel = ArticleListViewModel()
-    @FocusState private var isSearchFocused: Bool
     @State private var isDraftPresented = false
     @State private var showFeatureMessage = false
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
-    
+
     var body: some View {
-        content
-            .navigationBarBackButtonHidden(true)
-            .onAppear {
-                print("🔵 [ArticleListView] onAppear - appNavigationPath count: \(appNavigationPath?.wrappedValue.count ?? -1)")
-            }
-            .onDisappear {
-                print("🔵 [ArticleListView] onDisappear")
-            }
-        .fullScreenCover(isPresented: $isDraftPresented) {
-            ArticleTextDraftView(
-                onSubmitted: { articleId in
-                    if let path = appNavigationPath {
-                        path.wrappedValue.append(AppNavigationRoute.articleRoute(.cameraResult(articleId)))
-                    }
-                    Task {
-                        await viewModel.loadArticles()
-                    }
-                },
-                startByCapturing: true
-            )
-        }
-    }
-    
-    private var content: some View {
-        ZStack {
-            Color(red: 0.97, green: 0.97, blue: 0.97)
+        ZStack(alignment: .bottom) {
+            Color.white
                 .ignoresSafeArea()
-            
+
             VStack(spacing: 0) {
-                topNavBar
-                searchBar
-                articleList
-                bottomToolbar
+                header
+                articleSections
+                bottomTabBar
             }
         }
-        .onAppear {
-            Task {
-                await viewModel.loadArticles()
-            }
+        .navigationBarBackButtonHidden(true)
+        .task {
+            await viewModel.loadArticles()
         }
         .alert(viewModel.toastMessage ?? "", isPresented: Binding(
             get: { viewModel.toastMessage != nil },
@@ -78,229 +56,284 @@ struct ArticleListView: View {
             }
         } message: {
             if let article = viewModel.articleToDelete {
-                Text("确定要删除文章《\(article.title)》吗？此操作不可恢复。")
+                Text("确定要删除文章《\(article.title)》吗？")
             }
         }
-        .alert("功能建设中", isPresented: $showFeatureMessage) {
+        .alert("功能稍后补齐", isPresented: $showFeatureMessage) {
             Button("知道了", role: .cancel) {}
         } message: {
-            Text("收藏和日历会在后续版本继续补齐，当前原型已优先完成阅读主链路和学习统计。")
+            Text("这个入口先保留设计稿结构，阅读主链路已经可用。")
         }
-    }
-    
-    private var topNavBar: some View {
-        HStack {
-            Button {
-                if let path = appNavigationPath {
-                    print("🔵 [ArticleListView] Back button tapped, appNavigationPath count: \(path.wrappedValue.count)")
-                } else {
-                    print("🔵 [ArticleListView] Back button tapped, appNavigationPath not available")
-                }
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                    .foregroundColor(.primary)
-            }
-            
-            Spacer()
-            
-            Text("阅读记录")
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            Spacer()
-            
-            // 占位保持平衡
-            Color.clear
-                .frame(width: 44, height: 44)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(red: 0.97, green: 0.97, blue: 0.97))
-    }
-    
-    private var searchBar: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.gray)
-                .padding(.leading, 12)
-            
-            TextField("试试搜索文章中的内容，如公司", text: $viewModel.searchKeyword)
-                .focused($isSearchFocused)
-                .onChange(of: viewModel.searchKeyword) { oldValue, newValue in
-                    viewModel.onSearchInput(newValue)
-                }
-                .padding(.vertical, 12)
-        }
-        .background(Color(red: 0.94, green: 0.94, blue: 0.94))
-        .cornerRadius(25)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-    
-    private var articleList: some View {
-        Group {
-            if viewModel.filteredArticles.isEmpty && !viewModel.isLoading {
-                ScrollView {
-                    emptyState
-                        .padding(.vertical, 60)
-                }
-            } else {
-                List {
-                    ForEach(Array(viewModel.filteredArticles.enumerated()), id: \.element.id) { index, article in
-                        Button {
-                            print("🔵 [ArticleListView] Appending article to navigationPath: \(article.title)")
-                            if let path = appNavigationPath {
-                                print("🔵 [ArticleListView] Current navigationPath count: \(path.wrappedValue.count)")
-                                withAnimation {
-                                    path.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article)))
-                                }
-                                print("🔵 [ArticleListView] NavigationPath count after append: \(path.wrappedValue.count)")
-                            } else {
-                                print("🔵 [ArticleListView] ERROR: appNavigationPath not available!")
-                            }
-                        } label: {
-                            ArticleItemRow(article: article, index: index)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                viewModel.requestDelete(article: article)
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                            .tint(.red)
-                        }
+        .fullScreenCover(isPresented: $isDraftPresented) {
+            ArticleTextDraftView(
+                onSubmitted: { articleId in
+                    appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.cameraResult(articleId)))
+                    Task {
+                        await viewModel.loadArticles()
                     }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color(red: 0.97, green: 0.97, blue: 0.97))
-                .refreshable {
-                    await viewModel.loadArticles()
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Text("📖")
-                .font(.system(size: 60))
-            Text("暂无阅读记录")
-                .font(.headline)
-                .foregroundColor(.secondary)
-            Text(viewModel.searchKeyword.isEmpty ? "点击底部拍照按钮添加文章" : "没有找到符合条件的文章")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
-    }
-    
-    private var bottomToolbar: some View {
-        HStack(spacing: 0) {
-            toolbarItem(icon: "doc.text", text: "文章", tab: "article")
-            toolbarItem(icon: "calendar", text: "日历", tab: "calendar")
-            cameraButton
-            toolbarItem(icon: "star", text: "收藏", tab: "favorite")
-            toolbarItem(icon: "person", text: "我的", tab: "mine")
-        }
-        .frame(height: 60)
-        .background(Color.white)
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(red: 0.9, green: 0.9, blue: 0.9)),
-            alignment: .top
-        )
-    }
-    
-    private func toolbarItem(icon: String, text: String, tab: String) -> some View {
-        Button {
-            handleToolbarTap(tab)
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundColor(viewModel.currentTab == tab ? Color(red: 0.03, green: 0.76, blue: 0.38) : .gray)
-                Text(text)
-                    .font(.system(size: 12))
-                    .foregroundColor(viewModel.currentTab == tab ? Color(red: 0.03, green: 0.76, blue: 0.38) : .gray)
-            }
-            .frame(maxWidth: .infinity)
+                },
+                startByCapturing: true
+            )
         }
     }
 
-    private func handleToolbarTap(_ tab: String) {
-        switch tab {
-        case "article":
-            viewModel.switchTab(tab)
-        case "mine":
-            viewModel.switchTab(tab)
-            appNavigationPath?.wrappedValue.append(AppNavigationRoute.stats)
-        default:
-            viewModel.switchTab(tab)
-            showFeatureMessage = true
+    private var header: some View {
+        HStack(alignment: .top) {
+            Text("Library")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+
+            Spacer()
+
+            Button {
+                isDraftPresented = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                    .frame(width: 40, height: 40)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 14)
+        .background(Color.white)
+    }
+
+    private var articleSections: some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: []) {
+                if groupedArticles.isEmpty && !viewModel.isLoading {
+                    emptyState
+                } else {
+                    ForEach(groupedArticles) { group in
+                        sectionView(group)
+                    }
+                }
+            }
+            .padding(.bottom, 110)
+        }
+        .refreshable {
+            await viewModel.loadArticles()
         }
     }
-    
-    private var cameraButton: some View {
-        Button {
-            isDraftPresented = true
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(.white)
-                    .frame(width: 50, height: 50)
-                    .background(Color(red: 0.03, green: 0.76, blue: 0.38))
-                    .clipShape(Circle())
-                    .shadow(color: Color(red: 0.03, green: 0.76, blue: 0.38).opacity(0.3), radius: 8, x: 0, y: 4)
-                Text("相机")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color(red: 0.03, green: 0.76, blue: 0.38))
+
+    private func sectionView(_ group: ArticleSectionGroup) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top) {
+                Text(group.title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                    .tracking(1.0)
+                Spacer()
             }
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 10)
+            .background(Color(red: 0.97, green: 0.98, blue: 1.0))
+
+            ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
+                Button {
+                    appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article)))
+                } label: {
+                    ArticleLibraryRow(
+                        article: article,
+                        stripeColor: stripeColor(for: index)
+                    )
+                }
+                .buttonStyle(.plain)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button {
+                        viewModel.requestDelete(article: article)
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                    .tint(.red)
+                }
+            }
+        }
+    }
+
+    private var groupedArticles: [ArticleSectionGroup] {
+        let calendar = Calendar.current
+        let sorted = viewModel.filteredArticles.sorted {
+            ($0.lastReadDate ?? $0.createdDate ?? .distantPast) > ($1.lastReadDate ?? $1.createdDate ?? .distantPast)
+        }
+        let groups = Dictionary(grouping: sorted) { article -> String in
+            let date = article.lastReadDate ?? article.createdDate ?? .distantPast
+            if calendar.isDateInToday(date) {
+                return "TODAY"
+            }
+            if calendar.isDateInYesterday(date) {
+                return "YESTERDAY"
+            }
+            return "EARLIER"
+        }
+
+        return ["TODAY", "YESTERDAY", "EARLIER"].compactMap { key in
+            guard let articles = groups[key], !articles.isEmpty else { return nil }
+            return ArticleSectionGroup(id: key, title: key, articles: articles)
+        }
+    }
+
+    private func stripeColor(for index: Int) -> Color {
+        let colors: [Color] = [
+            Color(red: 0.0, green: 0.4, blue: 1.0),
+            Color(red: 0.96, green: 0.62, blue: 0.07),
+            Color(red: 0.02, green: 0.75, blue: 0.58)
+        ]
+        return colors[index % colors.count]
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 60)
+            Text("还没有文章")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+            Text("点击右上角加号，拍照识别并创建第一篇文章。")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+            Button("新增文章") {
+                isDraftPresented = true
+            }
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 12)
+            .background(Color(red: 0.0, green: 0.4, blue: 1.0))
+            .clipShape(Capsule())
+            Spacer(minLength: 60)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 50)
+    }
+
+    private var bottomTabBar: some View {
+        HStack {
+            tabItem(icon: "list.bullet", title: "列表", isActive: true) {
+                viewModel.switchTab("list")
+            }
+            Spacer()
+            tabItem(icon: "play", title: "阅读", isActive: false) {
+                showFeatureMessage = true
+            }
+            Spacer()
+            tabItem(icon: "gearshape", title: "设置", isActive: false) {
+                appNavigationPath?.wrappedValue.append(AppNavigationRoute.stats)
+            }
+        }
+        .padding(.horizontal, 54)
+        .padding(.top, 14)
+        .padding(.bottom, 20)
+        .background(
+            Color.white
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Color(red: 0.92, green: 0.95, blue: 0.98))
+                        .frame(height: 1)
+                }
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private func tabItem(icon: String, title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .medium))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(isActive ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.68, green: 0.73, blue: 0.82))
+            .frame(width: 70)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ArticleLibraryRow: View {
+    let article: ArticleItem
+    let stripeColor: Color
+
+    var body: some View {
+        HStack(spacing: 0) {
+            stripeColor
+                .frame(width: 5)
+
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(article.title)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+
+                    Text("\(article.addedDisplay)  •  \(article.wordCount) words")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(Color(red: 0.8, green: 0.84, blue: 0.89))
+            }
+            .padding(.horizontal, 34)
+            .padding(.vertical, 18)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(red: 0.93, green: 0.95, blue: 0.98))
+                .frame(height: 1)
         }
     }
 }
 
-struct ArticleItemRow: View {
-    let article: ArticleItem
-    let index: Int
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
-                Text("\(index + 1).")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                Text(article.title)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-            }
-            
-            HStack {
-                Text("Duration \(article.durationDisplay)")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
-                if !article.lastReadDisplay.isEmpty {
-                    Text("Read on \(article.lastReadDisplay)")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-            }
+private extension ArticleItem {
+    var lastReadDate: Date? {
+        Self.parseISODate(lastReadAt)
+    }
+
+    var createdDate: Date? {
+        Self.parseISODate(createdAt)
+    }
+
+    var addedDisplay: String {
+        guard let createdDate else { return "Added" }
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        if calendar.isDateInToday(createdDate) {
+            return "Added \(formatter.string(from: createdDate))"
         }
-        .padding(16)
-        .background(Color.white)
-        .cornerRadius(12)
+        if calendar.isDateInYesterday(createdDate) {
+            return "Yesterday"
+        }
+        formatter.dateFormat = "MM/dd"
+        return formatter.string(from: createdDate)
+    }
+
+    static func parseISODate(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = parser.date(from: string) {
+            return date
+        }
+        let fallback = ISO8601DateFormatter()
+        return fallback.date(from: string)
     }
 }
 

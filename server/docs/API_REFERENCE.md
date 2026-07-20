@@ -10,7 +10,6 @@
   - 本地默认：`http://localhost:8080`
   - 现有客户端默认：参考 `client/utils/api.js` 中 `BASE_URL`（示例：`http://192.168.124.86:8080`）
 - **健康检查**：`GET /health`（无需鉴权，返回 `ok` 用于探活）
-- **静态资源**：`GET /attachments/**`（图片和音频等附件，直接以静态文件形式访问）
 - **所有业务接口**均挂载在 `/api` 之下
 
 ---
@@ -29,12 +28,11 @@
 | 模块 | 方法 | 路径 | 认证 | 说明 |
 | --- | --- | --- | --- | --- |
 | 公共 | GET | `/health` | 否 | 健康检查 |
-| 公共 | GET | `/attachments/**` | 否 | 访问上传图片/音频 |
 | 认证 | POST | `/api/auth/code` | 否 | 发送短信验证码 |
 | 认证 | POST | `/api/auth/login` | 否 | 短信验证码登录，返回 JWT |
 | 认证 | GET | `/api/auth/user` | 是 | 获取当前用户信息 |
 | 认证 | POST | `/api/auth/logout` | 是 | 登出（清除 Cookie） |
-| 文章 | POST | `/api/articles/process-text` | 是 | 提交客户端校对后的英文正文，生成文章与句子音频 |
+| 文章 | POST | `/api/articles/process-text` | 是 | 提交客户端校对后的英文正文，生成文章 |
 | 文章 | GET | `/api/articles/:id` | 是 | 文章详情（:id 为加密 ID） |
 | 文章 | GET | `/api/articles` | 是 | 当前用户的文章列表 |
 
@@ -130,7 +128,7 @@
 
 ### 4.5 `POST /api/articles/process-text`
 
-- **用途**：接收客户端已经校对过的英文正文文本，由 DeepSeek 负责清洗、断句和翻译，然后入库并异步生成音频。
+- **用途**：接收客户端已经校对过的英文正文文本，由 DeepSeek 负责清洗、断句和翻译，然后入库。
 - **认证**：必需。
 - **Content-Type**：`application/json`
 - **请求体**
@@ -210,7 +208,6 @@
         "title": "Hello world",
         "sentence_count": 10,
         "read_count": 2,
-        "sentence_duration": 12345, // ms，来自 TTS 统计
         "created_at": "2025-11-19T08:00:00Z",
         "last_read_at": "2025-11-20T08:00:00Z"
       }
@@ -225,19 +222,14 @@
 
 ## 5. 客户端调用约定
 
-- 统一封装在 `client/utils/api.js`
-  - `authAPI.sendCode` / `authAPI.login`
-  - `aiAPI.analyzeArticleImages` 支持多端上传（App/H5）
-  - `articleAPI.listArticles`、`articleAPI.getArticleDetail`
-- 默认请求头携带 `Content-Type: application/json`，上传接口改用 `uni.uploadFile`。
-- Token 管理由 `client/utils/auth.js` 负责（多用户支持）。
+- iOS 客户端通过统一网络层调用这些接口。
+- 默认请求头携带 `Content-Type: application/json`。
+- Token 通过 `Authorization: Bearer <token>` 传递。
 
 ---
 
 ## 6. 其他辅助接口/行为
 
-- **附件访问**：当前阅读主流程只依赖 `${ATTACHMENTS_DIR}/articleaudio` 中的句子音频静态资源。
-- **TTS 生成**：当文章成功入库后会异步调用统一 AI provider（DeepSeek + Microsoft TTS）生成句子音频并保存在上述目录，时长最终写回 `articles.sentence_duration`。
 - **错误返回格式**：统一为 `{"success": false, "message": "错误描述"}`，HTTP 状态码依业务不同（400/401/404/500/502 等）。
 
 ---

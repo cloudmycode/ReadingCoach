@@ -7,6 +7,12 @@
 
 import Foundation
 
+struct PhotoUploadItem {
+    let data: Data
+    let fileName: String
+    let mimeType: String
+}
+
 struct ArticleListResponse: Decodable {
     let items: [ArticleItem]
     let limit: Int
@@ -18,8 +24,8 @@ struct ArticleItem: Decodable, Identifiable, Hashable {
     let articleId: Int
     let title: String
     let sentenceCount: Int
+    let wordCount: Int
     let readCount: Int
-    let sentenceDuration: Int  // 毫秒
     let createdAt: String
     let lastReadAt: String?
     
@@ -28,19 +34,22 @@ struct ArticleItem: Decodable, Identifiable, Hashable {
         case articleId = "article_id"
         case title
         case sentenceCount = "sentence_count"
+        case wordCount = "word_count"
         case readCount = "read_count"
-        case sentenceDuration = "sentence_duration"
         case createdAt = "created_at"
         case lastReadAt = "last_read_at"
     }
-    
-    // 格式化时长显示（秒）
-    var durationDisplay: String {
-        let seconds = sentenceDuration / 1000
-        guard seconds > 0 else { return "--:--" }
-        let minutes = seconds / 60
-        let remain = seconds % 60
-        return String(format: "%d:%02d", minutes, remain)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        articleId = try container.decodeIfPresent(Int.self, forKey: .articleId) ?? 0
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        sentenceCount = try container.decodeIfPresent(Int.self, forKey: .sentenceCount) ?? 0
+        wordCount = try container.decodeIfPresent(Int.self, forKey: .wordCount) ?? 0
+        readCount = try container.decodeIfPresent(Int.self, forKey: .readCount) ?? 0
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        lastReadAt = try container.decodeIfPresent(String.self, forKey: .lastReadAt)
     }
     
     // 格式化日期显示
@@ -73,29 +82,62 @@ struct ArticleItem: Decodable, Identifiable, Hashable {
 struct ArticleDetailResponse: Decodable {
     let articleId: Int
     let title: String
+    let sentenceCount: Int
     let sentences: [ArticleSentence]
     
     enum CodingKeys: String, CodingKey {
         case articleId = "article_id"
         case title
+        case sentenceCount = "sentence_count"
         case sentences
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        articleId = try container.decodeIfPresent(Int.self, forKey: .articleId) ?? 0
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        sentences = try container.decodeIfPresent([ArticleSentence].self, forKey: .sentences) ?? []
+        sentenceCount = try container.decodeIfPresent(Int.self, forKey: .sentenceCount) ?? sentences.count
     }
 }
 
-struct AnalyzeImageResponse: Decodable {
-    let articleId: String?
-    let resourceId: String?
-    let type: String?
+struct ProcessArticleResponse: Decodable {
+    let resourceId: String
     
     enum CodingKeys: String, CodingKey {
-        case articleId = "article_id"
         case resourceId = "resource_id"
-        case type
     }
+}
+
+struct SentenceWordExplanationResponse: Decodable {
+    let word: String
+    let partOfSpeech: String
+    let meaning: String
+    let tip: String
+    let sentenceId: Int
+    let articleId: String
     
-    // 兼容性：优先使用 resource_id，如果没有则使用 article_id
-    var id: String? {
-        return resourceId ?? articleId
+    enum CodingKeys: String, CodingKey {
+        case word
+        case partOfSpeech = "part_of_speech"
+        case meaning
+        case tip
+        case sentenceId = "sentence_id"
+        case articleId = "article_id"
+    }
+}
+
+struct SentenceQuestionResponse: Decodable {
+    let answer: String
+    let highlights: [String]
+    let sentenceId: Int
+    let articleId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case answer
+        case highlights
+        case sentenceId = "sentence_id"
+        case articleId = "article_id"
     }
 }
 
@@ -124,4 +166,3 @@ struct ArticleSentence: Identifiable, Decodable {
         return UUID().uuidString
     }
 }
-

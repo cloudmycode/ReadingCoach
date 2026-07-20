@@ -53,9 +53,7 @@ func main() {
 	apiHandlers := &handlers.Handlers{
 		Auth: auth,
 		Article: handlers.NewArticleHandler(
-			cfg.AttachmentsDir,
 			appServices.articleSvc,
-			appServices.ttsService,
 			appServices.aiService,
 		),
 		Stats: handlers.NewStatsHandler(appServices.articleSvc),
@@ -115,34 +113,32 @@ type appServices struct {
 	codeSvc    services.CodeService
 	articleSvc *services.ArticleService
 	aiService  *services.AIService
-	ttsService services.TTSService
 }
 
 func initServices(cfg config.Config, db *sql.DB) *appServices {
 	codeSvc := services.NewDBCodeService(db)
 	articleSvc := services.NewArticleService(db)
+	if err := articleSvc.EnsureWordExplanationCacheTable(context.Background()); err != nil {
+		logger.Warn("⚠️ 初始化单词解释缓存表失败: %v", err)
+	}
 
-	// TTS 使用免费的 Edge TTS，无需密钥，因此 AI 服务始终可用；
-	// DeepSeek 文本解析在未配置 API Key 时不可用。
+	// DeepSeek 文本能力在未配置 API Key 时不可用。
 	aiService := services.NewAIService(
 		cfg.DeepSeekAPIKey,
 		cfg.DeepSeekAPIURL,
 		cfg.DeepSeekModel,
-		cfg.TTSVoice,
 	)
-	var ttsService services.TTSService = aiService
 
 	if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
-		logger.Warn("⚠️ DeepSeek 未配置，文本解析不可用；TTS 使用免费 Edge TTS")
+		logger.Warn("⚠️ DeepSeek 未配置，文本能力不可用")
 	} else {
-		logger.Info("✅ AI 服务初始化成功（DeepSeek 文本处理 + 免费 Edge TTS）")
+		logger.Info("✅ AI 服务初始化成功（DeepSeek 文本处理）")
 	}
 
 	return &appServices{
 		codeSvc:    codeSvc,
 		articleSvc: articleSvc,
 		aiService:  aiService,
-		ttsService: ttsService,
 	}
 }
 
@@ -161,7 +157,6 @@ func ensureAllDirs(cfg *config.Config) {
 
 	requiredDirs := []string{
 		cfg.AttachmentsDir,
-		filepath.Join(cfg.AttachmentsDir, "articleaudio"),
 	}
 	for _, dir := range requiredDirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

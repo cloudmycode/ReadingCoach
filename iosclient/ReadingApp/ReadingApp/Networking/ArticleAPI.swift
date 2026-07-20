@@ -45,12 +45,30 @@ struct ArticleAPI {
         )
     }
     
-    func processArticleText(_ text: String) async throws -> AnalyzeImageResponse {
+    func processArticleText(_ text: String) async throws -> ProcessArticleResponse {
         return try await networkManager.request(
             endpoint: "articles/process-text",
             method: "POST",
             body: ["text": text],
-            responseType: AnalyzeImageResponse.self
+            responseType: ProcessArticleResponse.self
+        )
+    }
+
+    func explainWord(articleId: String, sentenceId: Int, word: String) async throws -> SentenceWordExplanationResponse {
+        return try await networkManager.request(
+            endpoint: "articles/\(articleId)/sentences/\(sentenceId)/explain-word",
+            method: "POST",
+            body: ["word": word],
+            responseType: SentenceWordExplanationResponse.self
+        )
+    }
+
+    func askSentence(articleId: String, sentenceId: Int, question: String) async throws -> SentenceQuestionResponse {
+        return try await networkManager.request(
+            endpoint: "articles/\(articleId)/sentences/\(sentenceId)/ask",
+            method: "POST",
+            body: ["question": question],
+            responseType: SentenceQuestionResponse.self
         )
     }
 }

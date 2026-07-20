@@ -190,7 +190,8 @@ struct ArticleTextDraftView: View {
             defer { isSubmitting = false }
             do {
                 let response = try await ArticleAPI.shared.processArticleText(finalText)
-                guard let id = response.id, !id.isEmpty else {
+                let id = response.resourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty else {
                     alertMessage = "服务器未返回文章 ID"
                     return
                 }

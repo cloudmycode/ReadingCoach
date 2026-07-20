@@ -112,8 +112,6 @@ CREATE TABLE `articles` (
   `user_id` int NOT NULL COMMENT '用户ID（关联users表）',
   `title` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '文章标题',
   `sentence_count` int NOT NULL DEFAULT '0' COMMENT '句子数量',
-  `sentence_duration` int DEFAULT NULL,
-  `attachment_paths` longtext COMMENT '附件路径（JSON数组格式，存储多张图片路径）',
   `read_count` int NOT NULL DEFAULT '0' COMMENT '阅读次数',
   `last_read_at` datetime DEFAULT NULL COMMENT '最后阅读时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -127,16 +125,16 @@ CREATE TABLE `articles` (
 -- ----------------------------
 -- 表数据: articles (共 9 行)
 -- ----------------------------
-INSERT INTO `articles` (`article_id`, `user_id`, `title`, `sentence_count`, `sentence_duration`, `attachment_paths`, `read_count`, `last_read_at`, `created_at`, `updated_at`) VALUES
-(1, 1, 'Chapter Fourteen', 11, 33024, '["/attachments/uploadimage/95514130-e4af-40c0-a2a1-2c6ff03d7262.png", "/attachments/uploadimage/25eebb63-2bbf-47f4-9155-85f0c28c6522.png"]', 85, '2025-12-05 15:08:55', '2025-11-19 00:13:49', '2025-12-05 15:08:55'),
-(2, 1, 'Chapter Four', 12, 43920, '["/attachments/uploadimage/51d5154b-38d1-40ac-a9a6-0f7a742cf2cb.jpg"]', 3, '2025-12-01 11:02:34', '2025-11-28 18:05:42', '2025-12-01 11:02:34'),
-(3, 1, 'thought that he wouldn''t mind getting a good, long look at Percival Smidgey''s private investigator''s license.', 13, 61368, '["/attachments/uploadimage/81c78a0d-7ff1-4a99-ab3e-ff06a37b088c.jpg"]', 7, '2025-12-03 13:03:59', '2025-12-01 10:57:08', '2025-12-03 13:03:59'),
-(4, 1, 'You might have to call Animal Control.', 16, 64608, '["/attachments/uploadimage/dc6c5847-9b0e-4492-8144-ef132f9ec31d.jpg"]', 5, '2025-12-03 13:11:26', '2025-12-01 11:03:07', '2025-12-03 13:11:26'),
-(5, 1, '腾讯云Andon', 9, 24696, '["/attachments/uploadimage/71ba0166-3a08-4436-ba4e-f3d3b187d4bb.jpg", "/attachments/uploadimage/5c15f6cb-6ed0-42b5-871b-1b335424d3d2.jpg", "/attachments/uploadimage/4de34938-b1c5-45b2-aed2-bf1bce3eaaae.jpg", "/attachments/uploadimage/e4dd8863-4d4f-490e-8dd1-d5cea7687aa6.jpg", "/attachments/uploadimage/df330918-e7ab-4224-9d45-4da985815a91.jpg"]', 2, '2025-12-01 11:12:07', '2025-12-01 11:11:46', '2025-12-01 11:12:07'),
-(6, 1, 'Gambol', 1, 1368, '["/attachments/uploadimage/81257133-240d-4bbd-915a-790ec044ef3c.jpg"]', 19, '2025-12-05 14:14:02', '2025-12-02 09:51:56', '2025-12-05 14:14:02'),
-(7, 1, 'illustrated by', 5, 9912, '["/attachments/uploadimage/8e435abc-529e-415d-a927-5a01589c3f04.jpg", "/attachments/uploadimage/ad03e2a7-a582-4e4b-b75e-b81d2cc92141.jpg", "/attachments/uploadimage/93ac3dff-c61e-43aa-b25c-064992ec428c.jpg"]', 10, '2025-12-05 13:47:41', '2025-12-02 09:52:55', '2025-12-05 13:47:41'),
-(8, 1, 'MacBo', 1, 1680, '["/attachments/uploadimage/bb51eaa6-fc36-4ff8-8919-c3be227d2507.jpg"]', 10, '2025-12-04 17:30:36', '2025-12-02 13:59:44', '2025-12-04 17:30:36'),
-(9, 1, 'Line: 15 Col: 25', 1, 3456, '["/attachments/uploadimage/fd661a42-9b9f-49fd-8af9-84154055c2fe.jpg"]', 1, '2025-12-03 15:51:12', '2025-12-03 15:51:12', '2025-12-03 15:51:14');
+INSERT INTO `articles` (`article_id`, `user_id`, `title`, `sentence_count`, `read_count`, `last_read_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Chapter Fourteen', 11, 85, '2025-12-05 15:08:55', '2025-11-19 00:13:49', '2025-12-05 15:08:55'),
+(2, 1, 'Chapter Four', 12, 3, '2025-12-01 11:02:34', '2025-11-28 18:05:42', '2025-12-01 11:02:34'),
+(3, 1, 'thought that he wouldn''t mind getting a good, long look at Percival Smidgey''s private investigator''s license.', 13, 7, '2025-12-03 13:03:59', '2025-12-01 10:57:08', '2025-12-03 13:03:59'),
+(4, 1, 'You might have to call Animal Control.', 16, 5, '2025-12-03 13:11:26', '2025-12-01 11:03:07', '2025-12-03 13:11:26'),
+(5, 1, '腾讯云Andon', 9, 2, '2025-12-01 11:12:07', '2025-12-01 11:11:46', '2025-12-01 11:12:07'),
+(6, 1, 'Gambol', 1, 19, '2025-12-05 14:14:02', '2025-12-02 09:51:56', '2025-12-05 14:14:02'),
+(7, 1, 'illustrated by', 5, 10, '2025-12-05 13:47:41', '2025-12-02 09:52:55', '2025-12-05 13:47:41'),
+(8, 1, 'MacBo', 1, 10, '2025-12-04 17:30:36', '2025-12-02 13:59:44', '2025-12-04 17:30:36'),
+(9, 1, 'Line: 15 Col: 25', 1, 1, '2025-12-03 15:51:12', '2025-12-03 15:51:12', '2025-12-03 15:51:14');
 
 -- ----------------------------
 -- 表结构: libraries

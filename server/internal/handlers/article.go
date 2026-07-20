@@ -1,55 +1,58 @@
 package handlers
 
 import (
-	"bytes"
-	"context"
+	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/hajimehoshi/go-mp3"
 
 	"words/server/internal/logger"
 	"words/server/internal/services"
 	"words/server/pkg/utils"
 )
 
-const (
-	articleAudioSubDir = "articleaudio"
-)
-
 type ArticleHandler struct {
-	attachmentsDir string
-	audioDir       string
 	articleService *services.ArticleService
-	ttsService     services.TTSService
 	textAnalyzer   services.TextAnalyzer
 }
 
-// NewArticleHandler 创建文章处理器实例
-func NewArticleHandler(attachmentsDir string, articleService *services.ArticleService, ttsService services.TTSService, textAnalyzer services.TextAnalyzer) *ArticleHandler {
-	audioDir := filepath.Join(attachmentsDir, articleAudioSubDir)
-
-	if err := os.MkdirAll(audioDir, 0o755); err != nil {
-		logger.Warn("⚠️ 创建音频目录失败: %s, err=%v", audioDir, err)
-	}
-
+// NewArticleHandler 创建文章处理器实例。
+func NewArticleHandler(articleService *services.ArticleService, textAnalyzer services.TextAnalyzer) *ArticleHandler {
 	return &ArticleHandler{
-		attachmentsDir: attachmentsDir,
-		audioDir:       audioDir,
 		articleService: articleService,
-		ttsService:     ttsService,
 		textAnalyzer:   textAnalyzer,
 	}
 }
 
 type processArticleTextReq struct {
 	Text string `json:"text"`
+}
+
+type explainWordReq struct {
+	Word string `json:"word"`
+}
+
+type askSentenceReq struct {
+	Question string `json:"question"`
+}
+
+type explainWordResp struct {
+	Word         string `json:"word"`
+	PartOfSpeech string `json:"part_of_speech"`
+	Meaning      string `json:"meaning"`
+	Tip          string `json:"tip"`
+	SentenceID   int64  `json:"sentence_id"`
+	ArticleID    string `json:"article_id"`
+}
+
+type askSentenceResp struct {
+	Answer     string   `json:"answer"`
+	Highlights []string `json:"highlights"`
+	SentenceID int64    `json:"sentence_id"`
+	ArticleID  string   `json:"article_id"`
 }
 
 // GetArticleDetail 根据加密的文章ID获取文章详情（包括标题和所有句子）
@@ -133,14 +136,14 @@ func (h *ArticleHandler) ListArticles(c *gin.Context) {
 			lastRead = article.LastReadAt.Format(time.RFC3339)
 		}
 		items = append(items, gin.H{
-			"id":                utils.EncryptID(article.ArticleID),
-			"article_id":        article.ArticleID,
-			"title":             article.Title,
-			"sentence_count":    article.SentenceCount,
-			"read_count":        article.ReadCount,
-			"sentence_duration": article.SentenceDuration,
-			"created_at":        article.CreatedAt.Format(time.RFC3339),
-			"last_read_at":      lastRead,
+			"id":             utils.EncryptID(article.ArticleID),
+			"article_id":     article.ArticleID,
+			"title":          article.Title,
+			"sentence_count": article.SentenceCount,
+			"word_count":     article.WordCount,
+			"read_count":     article.ReadCount,
+			"created_at":     article.CreatedAt.Format(time.RFC3339),
+			"last_read_at":   lastRead,
 		})
 	}
 
@@ -238,64 +241,147 @@ func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 		return
 	}
 
-	if articleID > 0 {
-		go h.GenerateAudioForSentences(articleID)
-	}
-
 	jsonOK(c, "处理成功", gin.H{
 		"resource_id": utils.EncryptID(articleID),
 	})
 }
 
-// GenerateAudioForSentences 在协程中为文章的句子生成音频（公开方法，供回调使用）
-// 参数:
-//   - articleID: 文章ID
-//
-// 注意:
-//   - 此方法在协程中异步执行，不会阻塞主流程
-//   - 如果生成失败，会记录错误日志但不影响主流程
-//   - 使用 sentence_id 生成音频文件名，不再更新数据库中的 original_audio_path 和 translation_audio_path
-//   - 从数据库查询获取句子信息和 sentence_id
-func (h *ArticleHandler) GenerateAudioForSentences(articleID int64) {
-	logger.Info("🎵 开始为文章 %d 生成音频", articleID)
-
-	// 检查 TTS 服务
-	if h.ttsService == nil {
-		logger.Warn("⚠️ TTS 服务未配置，跳过音频生成")
+func (h *ArticleHandler) ExplainSentenceWord(c *gin.Context) {
+	articleID, sentenceID, userID, ok := h.parseSentenceRouteContext(c)
+	if !ok {
+		return
+	}
+	if h.textAnalyzer == nil {
+		jsonError(c, http.StatusServiceUnavailable, "AI 服务未配置")
 		return
 	}
 
-	// 检查文章服务
-	if h.articleService == nil {
-		logger.Error("❌ 文章服务未配置，无法获取句子信息")
+	var req explainWordReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	word := strings.TrimSpace(req.Word)
+	if word == "" {
+		jsonError(c, http.StatusBadRequest, "单词不能为空")
 		return
 	}
 
-	// 从数据库获取句子信息
-	sentences, err := h.articleService.GetArticleSentencesForAudio(context.Background(), articleID)
+	if cached, err := h.articleService.GetCachedWordExplanation(c.Request.Context(), sentenceID, word); err != nil {
+		logger.Error("❌ 查询单词解释缓存失败: %v", err)
+	} else if cached != nil {
+		jsonOK(c, "获取成功", explainWordResp{
+			Word:         cached.Word,
+			PartOfSpeech: cached.PartOfSpeech,
+			Meaning:      cached.Meaning,
+			Tip:          cached.Tip,
+			SentenceID:   sentenceID,
+			ArticleID:    utils.EncryptID(articleID),
+		})
+		return
+	}
+
+	sentence, err := h.articleService.GetSentenceStudyContext(c.Request.Context(), articleID, sentenceID, userID)
 	if err != nil {
-		logger.Error("❌ 获取文章句子信息失败 article=%d: %v", articleID, err)
+		h.handleSentenceContextError(c, err)
 		return
 	}
 
-	if len(sentences) == 0 {
-		logger.Warn("⚠️ 文章 %d 没有句子，跳过音频生成", articleID)
+	prompt := fmt.Sprintf("%s\n\n文章标题：%s\n英文句子：%s\n中文翻译：%s\n用户点击的单词：%s",
+		services.WordExplainPromptTemplate,
+		sentence.ArticleTitle,
+		sentence.Original,
+		sentence.Translation,
+		word,
+	)
+
+	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+	if err != nil {
+		logger.Error("❌ 单词解释失败: %v", err)
+		jsonError(c, http.StatusInternalServerError, "生成单词解释失败")
 		return
 	}
 
-	logger.Info("🎵 文章 %d 共 %d 个句子，开始生成音频", articleID, len(sentences))
+	var response explainWordResp
+	if err := decodeJSONObject(raw, &response); err != nil {
+		logger.Error("❌ 单词解释解析失败: %v raw=%s", err, raw)
+		jsonError(c, http.StatusInternalServerError, "单词解释解析失败")
+		return
+	}
+	if strings.TrimSpace(response.Word) == "" {
+		response.Word = word
+	}
+	if saveErr := h.articleService.SaveCachedWordExplanation(c.Request.Context(), services.CachedWordExplanation{
+		SentenceID:     sentenceID,
+		NormalizedWord: word,
+		Word:           response.Word,
+		PartOfSpeech:   response.PartOfSpeech,
+		Meaning:        response.Meaning,
+		Tip:            response.Tip,
+	}); saveErr != nil {
+		logger.Warn("⚠️ 保存单词解释缓存失败: %v", saveErr)
+	}
+	response.SentenceID = sentenceID
+	response.ArticleID = utils.EncryptID(articleID)
 
-	// 生成所有句子的音频并统计
-	validSentenceCount, totalSentenceDuration := h.generateAllSentencesAudio(sentences)
+	jsonOK(c, "获取成功", response)
+}
 
-	// 更新文章音频统计
-	if err := h.articleService.UpdateArticleAudioStats(context.Background(), articleID, validSentenceCount, totalSentenceDuration); err != nil {
-		logger.Error("❌ 更新文章音频统计失败 article=%d: %v", articleID, err)
-	} else {
-		logger.Info("📝 已更新文章 %d 的句子数=%d，总音频时长=%dms", articleID, validSentenceCount, totalSentenceDuration)
+func (h *ArticleHandler) AskSentenceQuestion(c *gin.Context) {
+	articleID, sentenceID, userID, ok := h.parseSentenceRouteContext(c)
+	if !ok {
+		return
+	}
+	if h.textAnalyzer == nil {
+		jsonError(c, http.StatusServiceUnavailable, "AI 服务未配置")
+		return
 	}
 
-	logger.Info("🎵 文章 %d 的音频生成完成", articleID)
+	var req askSentenceReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	question := strings.TrimSpace(req.Question)
+	if question == "" {
+		jsonError(c, http.StatusBadRequest, "问题不能为空")
+		return
+	}
+
+	sentence, err := h.articleService.GetSentenceStudyContext(c.Request.Context(), articleID, sentenceID, userID)
+	if err != nil {
+		h.handleSentenceContextError(c, err)
+		return
+	}
+
+	prompt := fmt.Sprintf("%s\n\n文章标题：%s\n英文句子：%s\n中文翻译：%s\n用户问题：%s",
+		services.SentenceCoachPromptTemplate,
+		sentence.ArticleTitle,
+		sentence.Original,
+		sentence.Translation,
+		question,
+	)
+
+	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+	if err != nil {
+		logger.Error("❌ 句子问答失败: %v", err)
+		jsonError(c, http.StatusInternalServerError, "生成问答失败")
+		return
+	}
+
+	var response askSentenceResp
+	if err := decodeJSONObject(raw, &response); err != nil {
+		logger.Error("❌ 句子问答解析失败: %v raw=%s", err, raw)
+		jsonError(c, http.StatusInternalServerError, "问答解析失败")
+		return
+	}
+	response.SentenceID = sentenceID
+	response.ArticleID = utils.EncryptID(articleID)
+	if response.Highlights == nil {
+		response.Highlights = []string{}
+	}
+
+	jsonOK(c, "获取成功", response)
 }
 
 // ============================================================================
@@ -321,95 +407,47 @@ func convertAIDataToSentences(data [][]string) []services.ArticleSentenceInput {
 	return sentences
 }
 
-// generateAllSentencesAudio 为所有句子生成音频
-// 返回有效句子数量和总音频时长（毫秒）
-func (h *ArticleHandler) generateAllSentencesAudio(sentences []services.SentenceForAudio) (int, int) {
-	validSentenceCount := 0
-	totalSentenceDuration := 0
-	ctx := context.Background()
-
-	for idx, sent := range sentences {
-		originalText := strings.TrimSpace(sent.Original)
-		translationText := strings.TrimSpace(sent.Translation)
-
-		if originalText != "" || translationText != "" {
-			validSentenceCount++
-		}
-
-		sentenceOrder := idx + 1
-		originalDuration := h.generateSentenceAudio(ctx, originalText, sent.SentenceID, "original", sentenceOrder)
-		translationDuration := h.generateSentenceAudio(ctx, translationText, sent.SentenceID, "translation", sentenceOrder)
-
-		// 句子总时长使用原句优先，没有原句则用翻译
-		if originalDuration > 0 {
-			totalSentenceDuration += originalDuration
-		} else if translationDuration > 0 {
-			totalSentenceDuration += translationDuration
-		}
+func (h *ArticleHandler) parseSentenceRouteContext(c *gin.Context) (articleID int64, sentenceID int64, userID int, ok bool) {
+	encryptedArticleID := c.Param("id")
+	if encryptedArticleID == "" {
+		jsonError(c, http.StatusBadRequest, "文章ID不能为空")
+		return 0, 0, 0, false
 	}
 
-	return validSentenceCount, totalSentenceDuration
+	articleID, err := utils.DecryptID(encryptedArticleID)
+	if err != nil {
+		jsonError(c, http.StatusBadRequest, "无效的文章ID")
+		return 0, 0, 0, false
+	}
+
+	sentenceID = parseParamInt64(c.Param("sentence_id"))
+	if sentenceID <= 0 {
+		jsonError(c, http.StatusBadRequest, "无效的句子ID")
+		return 0, 0, 0, false
+	}
+
+	userID = getUserID(c)
+	if userID == 0 {
+		return 0, 0, 0, false
+	}
+	return articleID, sentenceID, userID, true
 }
 
-// generateSentenceAudio 为单个句子生成音频（原句或翻译）
-// 返回音频时长（毫秒），失败返回0
-func (h *ArticleHandler) generateSentenceAudio(ctx context.Context, text string, sentenceID int64, audioType string, sentenceOrder int) int {
-	if text == "" {
-		return 0
+func (h *ArticleHandler) handleSentenceContextError(c *gin.Context, err error) {
+	logger.Error("❌ 获取句子上下文失败: %v", err)
+	if err.Error() == "sentence not found" {
+		jsonError(c, http.StatusNotFound, "句子不存在")
+		return
 	}
-
-	audioPath, durationMS, err := h.generateTTSAudio(ctx, text, sentenceID, audioType)
-	if err != nil {
-		logger.Error("❌ 生成句子 %d (sentence_id=%d) %s音频失败: %v", sentenceOrder, sentenceID, audioType, err)
-		return 0
-	}
-
-	logger.Info("✅ 句子 %d (sentence_id=%d) %s音频生成成功: %s (duration=%dms)", sentenceOrder, sentenceID, audioType, audioPath, durationMS)
-	return durationMS
+	jsonError(c, http.StatusInternalServerError, "获取句子信息失败")
 }
 
-// generateTTSAudio 为单个句子生成音频文件并保存
-// 使用 sentence_id 来生成文件名，不再依赖数据库中的 original_audio_path 和 translation_audio_path
-func (h *ArticleHandler) generateTTSAudio(ctx context.Context, text string, sentenceID int64, audioType string) (string, int, error) {
-	// 调用 TTS 服务生成音频
-	audioData, err := h.ttsService.GenerateAudio(ctx, text, fmt.Sprintf("%d", sentenceID))
-	if err != nil {
-		return "", 0, fmt.Errorf("generate audio: %w", err)
+func decodeJSONObject(raw string, target interface{}) error {
+	trimmed := strings.TrimSpace(raw)
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start >= 0 && end > start {
+		trimmed = trimmed[start : end+1]
 	}
-
-	// 使用 sentence_id 生成文件名（根据类型区分：original 或 translation）
-	fileName := fmt.Sprintf("audio_%d_%s.mp3", sentenceID, audioType)
-	targetPath := filepath.Join(h.audioDir, fileName)
-	if err := os.WriteFile(targetPath, audioData, 0644); err != nil {
-		return "", 0, fmt.Errorf("save audio file: %w", err)
-	}
-
-	durationMS, err := calculateMP3DurationMillis(audioData)
-	if err != nil {
-		logger.Warn("⚠️ 计算音频时长失败 sentence_id=%d type=%s: %v", sentenceID, audioType, err)
-		durationMS = 0
-	}
-
-	// 返回相对路径与时长
-	return "/attachments/" + articleAudioSubDir + "/" + fileName, durationMS, nil
-}
-
-func calculateMP3DurationMillis(audioData []byte) (int, error) {
-	if len(audioData) == 0 {
-		return 0, fmt.Errorf("empty audio data")
-	}
-
-	decoder, err := mp3.NewDecoder(bytes.NewReader(audioData))
-	if err != nil {
-		return 0, fmt.Errorf("decode mp3: %w", err)
-	}
-
-	length := decoder.Length()
-	sampleRate := decoder.SampleRate()
-	if length <= 0 || sampleRate <= 0 {
-		return 0, fmt.Errorf("invalid decoder metadata length=%d sampleRate=%d", length, sampleRate)
-	}
-
-	durationSeconds := float64(length) / float64(sampleRate*4)
-	return int(math.Round(durationSeconds * 1000)), nil
+	return json.Unmarshal([]byte(trimmed), target)
 }
