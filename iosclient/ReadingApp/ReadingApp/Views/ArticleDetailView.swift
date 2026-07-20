@@ -9,12 +9,14 @@ import SwiftUI
 
 struct ArticleDetailView: View {
     @StateObject private var viewModel: ArticleDetailViewModel
+    @StateObject private var speechInput = SpeechInputManager()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
     private let showsBackButton: Bool
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
     @State private var questionDraft = ""
+    @State private var questionBeforeSpeech = ""
     @State private var selectedWordNormalized: String?
     @State private var selectedWordExplanation: WordExplanation?
     @State private var chatMessages: [DetailChatMessage] = []
@@ -65,8 +67,19 @@ struct ArticleDetailView: View {
         .onChange(of: activeSentence?.id ?? "") { _, _ in
             refreshInteractivePanel()
         }
+        .onChange(of: speechInput.transcript) { _, transcript in
+            questionDraft = [questionBeforeSpeech, transcript]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        .onChange(of: speechInput.errorMessage) { _, message in
+            guard let message else { return }
+            viewModel.toastMessage = message
+            speechInput.clearError()
+        }
         .onDisappear {
             isNavigatingBack = false
+            speechInput.cancelRecording()
             viewModel.stopVoiceReading()
         }
         .alert(viewModel.toastMessage ?? "", isPresented: Binding(
@@ -600,6 +613,7 @@ struct ArticleDetailView: View {
                 .padding(.vertical, 12)
                 .background(Color(red: 0.97, green: 0.98, blue: 1.0))
                 .clipShape(Capsule())
+                .disabled(speechInput.isRecording || isSubmittingQuestion)
                 .onSubmit {
                     Task {
                         await submitQuestion()
@@ -607,19 +621,21 @@ struct ArticleDetailView: View {
                 }
 
             Button {
-                viewModel.toastMessage = "语音提问功能稍后补齐"
+                toggleSpeechInput()
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
+                        .fill(speechInput.isRecording ? Color(red: 0.94, green: 0.22, blue: 0.25) : Color(red: 0.97, green: 0.98, blue: 1.0))
                         .frame(width: 42, height: 42)
 
-                    Image(systemName: "mic")
+                    Image(systemName: speechInput.isRecording ? "stop.fill" : "mic")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(Color(red: 0.55, green: 0.62, blue: 0.74))
+                        .foregroundColor(speechInput.isRecording ? .white : Color(red: 0.55, green: 0.62, blue: 0.74))
                 }
             }
             .buttonStyle(.plain)
+            .disabled(isSubmittingQuestion || speechInput.isStarting)
+            .accessibilityLabel(speechInput.isRecording ? "停止语音输入" : "开始语音输入")
         }
     }
 
@@ -751,6 +767,8 @@ struct ArticleDetailView: View {
     }
 
     private func refreshInteractivePanel() {
+        speechInput.cancelRecording()
+        questionBeforeSpeech = ""
         guard let activeSentence else {
             chatMessages = []
             selectedWordNormalized = nil
@@ -771,12 +789,6 @@ struct ArticleDetailView: View {
             DetailChatMessage(
                 role: .interpretation,
                 text: activeSentence.translation.isEmpty ? "这句话暂时还没有翻译。" : activeSentence.translation,
-                highlights: [],
-                showsBulb: false
-            ),
-            DetailChatMessage(
-                role: .assistant,
-                text: "对这句话还有疑问吗？我都可以解答。",
                 highlights: [],
                 showsBulb: false
             )
@@ -815,6 +827,7 @@ struct ArticleDetailView: View {
     }
 
     private func submitQuestion() async {
+        speechInput.cancelRecording()
         let question = questionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, let activeSentence, let sentenceId = activeSentence.sentenceId else { return }
 
@@ -854,6 +867,23 @@ struct ArticleDetailView: View {
             )
             persistChatHistory(for: sentenceId)
             viewModel.toastMessage = error.localizedDescription
+        }
+    }
+
+    private func toggleSpeechInput() {
+        if speechInput.isRecording {
+            speechInput.stopRecording()
+            return
+        }
+
+        viewModel.stopVoiceReading()
+        questionBeforeSpeech = questionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                try await speechInput.startRecording()
+            } catch {
+                viewModel.toastMessage = error.localizedDescription
+            }
         }
     }
 

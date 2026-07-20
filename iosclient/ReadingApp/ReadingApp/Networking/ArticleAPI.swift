@@ -44,6 +44,15 @@ struct ArticleAPI {
             responseType: EmptyResponse.self
         )
     }
+
+    func updateArticleTitle(articleId: String, title: String) async throws -> UpdateArticleTitleResponse {
+        try await networkManager.request(
+            endpoint: "articles/\(articleId)/title",
+            method: "POST",
+            body: ["title": title],
+            responseType: UpdateArticleTitleResponse.self
+        )
+    }
     
     func processArticleText(_ text: String) async throws -> ProcessArticleResponse {
         return try await networkManager.request(

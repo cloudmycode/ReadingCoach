@@ -9,9 +9,12 @@ import (
 	"time"
 )
 
-const ArticleTextAnalysisPrompt = `把正文按顺序整理成适合学习的短句，并逐句翻译成中文。
+const ArticleTextAnalysisPrompt = `阅读正文，先生成一个准确概括主题的简短标题，再把正文按顺序整理成适合学习的短句并逐句翻译成中文。
+标题尽量使用正文的主要语言，控制在 2 至 6 个词，不使用句号，不要直接照抄正文第一句。
 只处理用户提供的内容，不补写，不输出说明。
-输出 TSV，每行格式：英文<TAB>中文。`
+仅输出 TSV：
+第一行格式：TITLE<TAB>标题
+后续每行格式：SENTENCE<TAB>英文原句<TAB>中文翻译`
 
 const WordExplainPromptTemplate = `解释用户在当前句子里点击的单词，如果在句子中该单词涉及到短语、固定搭配等，则一并解释。
 只返回 JSON：
@@ -80,6 +83,7 @@ func parseArticleSentencesFromData(data [][]string) ([]ArticleSentenceInput, err
 func (s *ArticleService) SaveAnalyzedArticle(
 	ctx context.Context,
 	userID int,
+	title string,
 	sentences []ArticleSentenceInput,
 ) (int64, error) {
 	if err := s.validateService(); err != nil {
@@ -92,13 +96,12 @@ func (s *ArticleService) SaveAnalyzedArticle(
 		return 0, fmt.Errorf("no sentences to save")
 	}
 
-	// 生成标题
-	title := strings.TrimSpace(sentences[0].Original)
+	title = strings.Trim(strings.TrimSpace(title), "\"'“”‘’")
 	if title == "" {
-		title = fmt.Sprintf("Untitled Article %s", time.Now().Format("20060102150405"))
+		title = "Untitled Article"
 	}
-	if len([]rune(title)) > 200 {
-		title = string([]rune(title)[:200])
+	if len([]rune(title)) > 60 {
+		title = string([]rune(title)[:60])
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -674,4 +677,35 @@ func (s *ArticleService) DeleteArticle(ctx context.Context, articleID int64, use
 	}
 
 	return nil
+}
+
+// UpdateArticleTitle 更新用户自己的文章标题。
+func (s *ArticleService) UpdateArticleTitle(ctx context.Context, articleID int64, userID int, title string) (string, error) {
+	if err := s.validateService(); err != nil {
+		return "", err
+	}
+	title = strings.TrimSpace(title)
+	if articleID <= 0 || userID <= 0 || title == "" {
+		return "", fmt.Errorf("invalid article title update")
+	}
+	if len([]rune(title)) > 60 {
+		return "", fmt.Errorf("article title too long")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE articles
+		SET title = ?, updated_at = NOW()
+		WHERE article_id = ? AND user_id = ?
+	`, title, articleID, userID)
+	if err != nil {
+		return "", fmt.Errorf("update article title: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("fetch rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return "", fmt.Errorf("article not found")
+	}
+	return title, nil
 }

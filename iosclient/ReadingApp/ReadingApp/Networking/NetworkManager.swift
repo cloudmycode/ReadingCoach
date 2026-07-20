@@ -135,8 +135,22 @@ final class NetworkManager {
         } catch let error as APIError {
             throw error
         } catch {
+            if Self.isCancellation(error) {
+                throw CancellationError()
+            }
             throw APIError.network(error)
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
     
     /// 执行 multipart/form-data 请求
@@ -206,4 +220,3 @@ final class NetworkManager {
         return message
     }
 }
-

@@ -22,7 +22,7 @@ struct ArticleListResponse: Codable {
 struct ArticleItem: Codable, Identifiable, Hashable {
     let id: String  // 加密ID
     let articleId: Int
-    let title: String
+    var title: String
     let sentenceCount: Int
     let wordCount: Int
     let readCount: Int
@@ -114,6 +114,10 @@ struct ProcessArticleResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case resourceId = "resource_id"
     }
+}
+
+struct UpdateArticleTitleResponse: Decodable {
+    let title: String
 }
 
 struct SentenceWordExplanationResponse: Codable {

@@ -31,6 +31,10 @@ type processArticleTextReq struct {
 	Text string `json:"text"`
 }
 
+type updateArticleTitleReq struct {
+	Title string `json:"title"`
+}
+
 type explainWordReq struct {
 	Word string `json:"word"`
 }
@@ -195,6 +199,48 @@ func (h *ArticleHandler) DeleteArticle(c *gin.Context) {
 	jsonOK(c, "删除成功", gin.H{})
 }
 
+// UpdateArticleTitle 修改文章标题。
+func (h *ArticleHandler) UpdateArticleTitle(c *gin.Context) {
+	encryptedID := c.Param("id")
+	articleID, err := utils.DecryptID(encryptedID)
+	if encryptedID == "" || err != nil {
+		jsonError(c, http.StatusBadRequest, "无效的文章ID")
+		return
+	}
+	userID := getUserID(c)
+	if userID == 0 {
+		return
+	}
+
+	var req updateArticleTitleReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		jsonError(c, http.StatusBadRequest, "标题不能为空")
+		return
+	}
+	if len([]rune(title)) > 60 {
+		jsonError(c, http.StatusBadRequest, "标题不能超过60个字符")
+		return
+	}
+
+	updatedTitle, err := h.articleService.UpdateArticleTitle(c.Request.Context(), articleID, userID, title)
+	if err != nil {
+		if err.Error() == "article not found" {
+			jsonError(c, http.StatusNotFound, "文章不存在")
+			return
+		}
+		logger.Error("❌ 更新文章标题失败 article=%d user=%d: %v", articleID, userID, err)
+		jsonError(c, http.StatusInternalServerError, "更新标题失败")
+		return
+	}
+
+	jsonOK(c, "更新成功", gin.H{"title": updatedTitle})
+}
+
 func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 	var req processArticleTextReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -232,7 +278,7 @@ func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 		return
 	}
 
-	sentenceInputs := convertAIDataToSentences(result)
+	title, sentenceInputs := convertAIDataToArticle(result)
 	if len(sentenceInputs) == 0 {
 		jsonError(c, http.StatusBadRequest, "未识别到有效句子")
 		return
@@ -241,6 +287,7 @@ func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 	articleID, err := h.articleService.SaveAnalyzedArticle(
 		c.Request.Context(),
 		userID,
+		title,
 		sentenceInputs,
 	)
 	if err != nil {
@@ -457,11 +504,21 @@ func (h *ArticleHandler) AskSentenceQuestion(c *gin.Context) {
 // 辅助函数
 // ============================================================================
 
-// convertAIDataToSentences 将AI返回的结构化数据转换为句子输入
-func convertAIDataToSentences(data [][]string) []services.ArticleSentenceInput {
+// convertAIDataToArticle 解析新版带标题格式，并兼容旧版英文/中文两列格式。
+func convertAIDataToArticle(data [][]string) (string, []services.ArticleSentenceInput) {
+	var title string
 	sentences := make([]services.ArticleSentenceInput, 0, len(data))
 	for _, line := range data {
-		if len(line) >= 2 {
+		if len(line) >= 2 && strings.EqualFold(strings.TrimSpace(line[0]), "TITLE") {
+			title = strings.TrimSpace(line[1])
+			continue
+		}
+		if len(line) >= 3 && strings.EqualFold(strings.TrimSpace(line[0]), "SENTENCE") {
+			sentences = append(sentences, services.ArticleSentenceInput{
+				Original:    strings.TrimSpace(line[1]),
+				Translation: strings.TrimSpace(line[2]),
+			})
+		} else if len(line) >= 2 {
 			sentences = append(sentences, services.ArticleSentenceInput{
 				Original:    strings.TrimSpace(line[0]),
 				Translation: strings.TrimSpace(line[1]),
@@ -473,7 +530,7 @@ func convertAIDataToSentences(data [][]string) []services.ArticleSentenceInput {
 			})
 		}
 	}
-	return sentences
+	return title, sentences
 }
 
 func (h *ArticleHandler) parseSentenceRouteContext(c *gin.Context) (articleID int64, sentenceID int64, userID int, ok bool) {

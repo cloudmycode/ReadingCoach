@@ -45,6 +45,26 @@ final class ArticleCacheStore {
         userDefaults.set(data, forKey: articleDetailKey)
     }
 
+    func updateArticleTitle(articleId: String, title: String) {
+        var items = cachedArticles()
+        if let index = items.firstIndex(where: { $0.id == articleId }) {
+            items[index].title = title
+            saveArticles(items)
+        }
+
+        var details = cachedArticleDetails()
+        if let detail = details[articleId] {
+            details[articleId] = ArticleDetailResponse(
+                articleId: detail.articleId,
+                title: title,
+                sentenceCount: detail.sentenceCount,
+                sentences: detail.sentences
+            )
+            guard let data = try? JSONEncoder().encode(details) else { return }
+            userDefaults.set(data, forKey: articleDetailKey)
+        }
+    }
+
     private func cachedArticleDetails() -> [String: ArticleDetailResponse] {
         guard let data = userDefaults.data(forKey: articleDetailKey),
               let cache = try? JSONDecoder().decode([String: ArticleDetailResponse].self, from: data) else {

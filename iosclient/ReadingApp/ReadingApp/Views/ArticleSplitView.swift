@@ -48,12 +48,6 @@ struct ArticleSplitView: View {
                 StatsView()
             }
         }
-        .alert(viewModel.toastMessage ?? "", isPresented: Binding(
-            get: { viewModel.toastMessage != nil },
-            set: { _ in viewModel.toastMessage = nil }
-        )) {
-            Button("确定", role: .cancel) { viewModel.toastMessage = nil }
-        }
         .alert("确认删除", isPresented: $viewModel.showDeleteConfirmation) {
             Button("取消", role: .cancel) {
                 viewModel.cancelDelete()
@@ -61,8 +55,8 @@ struct ArticleSplitView: View {
             Button("删除", role: .destructive) {
                 Task {
                     let deletingId = viewModel.articleToDelete?.id
-                    await viewModel.confirmDelete()
-                    if selectedArticleId == deletingId {
+                    let deleted = await viewModel.confirmDelete()
+                    if deleted, selectedArticleId == deletingId {
                         selectedArticleId = viewModel.articles.first?.id
                     }
                 }
@@ -71,6 +65,18 @@ struct ArticleSplitView: View {
             if let article = viewModel.articleToDelete {
                 Text("确定要删除文章《\(article.title)》吗？")
             }
+        }
+        .alert("编辑标题", isPresented: $viewModel.showTitleEditor) {
+            TextField("文章标题", text: $viewModel.titleDraft)
+            Button("取消", role: .cancel) {
+                viewModel.cancelTitleEdit()
+            }
+            Button("保存") {
+                Task { await viewModel.confirmTitleEdit() }
+            }
+            .disabled(!viewModel.canSaveTitle)
+        } message: {
+            Text("标题不能为空，最多 60 个字符。")
         }
     }
 
@@ -127,23 +133,27 @@ struct ArticleSplitView: View {
                             .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
                             ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
-                                Button {
-                                    selectedArticleId = article.id
-                                } label: {
-                                    SplitArticleRow(
+                                HStack(spacing: 0) {
+                                    Button {
+                                        selectedArticleId = article.id
+                                    } label: {
+                                        SplitArticleRow(
+                                            article: article,
+                                            stripeColor: stripeColor(for: index),
+                                            isSelected: selectedArticleId == article.id
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    ArticleActionsMenu(
                                         article: article,
-                                        stripeColor: stripeColor(for: index),
-                                        isSelected: selectedArticleId == article.id
+                                        isDisabled: viewModel.isMutatingArticle,
+                                        isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
+                                        onEdit: { viewModel.requestTitleEdit(article: article) },
+                                        onDelete: { viewModel.requestDelete(article: article) }
                                     )
                                 }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        viewModel.requestDelete(article: article)
-                                    } label: {
-                                        Label("删除", systemImage: "trash")
-                                    }
-                                }
+                                .background(selectedArticleId == article.id ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)
                             }
                         }
                     }
@@ -151,8 +161,12 @@ struct ArticleSplitView: View {
                 .padding(.bottom, 24)
             }
             .refreshable {
-                await viewModel.loadArticles()
+                await viewModel.refreshArticles()
             }
+            .overlay(alignment: .bottom) {
+                toastOverlay
+            }
+            .animation(.easeInOut, value: viewModel.toastMessage)
         }
         .background(Color.white)
         .overlay(alignment: .trailing) {
@@ -171,7 +185,7 @@ struct ArticleSplitView: View {
                     articleTitle: selectedArticle.title,
                     showsBackButton: false
                 )
-                .id(selectedArticle.id)
+                .id("\(selectedArticle.id)-\(selectedArticle.title)")
 
                 if isSidebarCollapsed {
                     expandButton
@@ -263,6 +277,16 @@ struct ArticleSplitView: View {
         }
     }
 
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let message = viewModel.toastMessage {
+            ToastBanner(message: message)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     private func ensureSelectedArticle() {
         guard !viewModel.articles.isEmpty else {
             selectedArticleId = nil
@@ -313,12 +337,9 @@ private struct SplitArticleRow: View {
                 }
 
                 Spacer(minLength: 8)
-
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(Color(red: 0.8, green: 0.84, blue: 0.89))
             }
-            .padding(.horizontal, 22)
+            .padding(.leading, 22)
+            .padding(.trailing, 10)
             .padding(.vertical, 16)
         }
         .background(isSelected ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)

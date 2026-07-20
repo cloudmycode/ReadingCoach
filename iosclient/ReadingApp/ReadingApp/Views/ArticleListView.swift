@@ -39,12 +39,6 @@ struct ArticleListView: View {
         .task {
             await viewModel.loadArticles()
         }
-        .alert(viewModel.toastMessage ?? "", isPresented: Binding(
-            get: { viewModel.toastMessage != nil },
-            set: { _ in viewModel.toastMessage = nil }
-        )) {
-            Button("确定", role: .cancel) { viewModel.toastMessage = nil }
-        }
         .alert("确认删除", isPresented: $viewModel.showDeleteConfirmation) {
             Button("取消", role: .cancel) {
                 viewModel.cancelDelete()
@@ -58,6 +52,18 @@ struct ArticleListView: View {
             if let article = viewModel.articleToDelete {
                 Text("确定要删除文章《\(article.title)》吗？")
             }
+        }
+        .alert("编辑标题", isPresented: $viewModel.showTitleEditor) {
+            TextField("文章标题", text: $viewModel.titleDraft)
+            Button("取消", role: .cancel) {
+                viewModel.cancelTitleEdit()
+            }
+            Button("保存") {
+                Task { await viewModel.confirmTitleEdit() }
+            }
+            .disabled(!viewModel.canSaveTitle)
+        } message: {
+            Text("标题不能为空，最多 60 个字符。")
         }
         .alert("功能稍后补齐", isPresented: $showFeatureMessage) {
             Button("知道了", role: .cancel) {}
@@ -123,7 +129,21 @@ struct ArticleListView: View {
             .padding(.bottom, 110)
         }
         .refreshable {
-            await viewModel.loadArticles()
+            await viewModel.refreshArticles()
+        }
+        .overlay(alignment: .bottom) {
+            toastOverlay
+        }
+        .animation(.easeInOut, value: viewModel.toastMessage)
+    }
+
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let message = viewModel.toastMessage {
+            ToastBanner(message: message)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -141,23 +161,26 @@ struct ArticleListView: View {
             .background(Color(red: 0.97, green: 0.98, blue: 1.0))
 
             ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
-                Button {
-                    appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article)))
-                } label: {
-                    ArticleLibraryRow(
+                HStack(spacing: 0) {
+                    Button {
+                        appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article)))
+                    } label: {
+                        ArticleLibraryRow(
+                            article: article,
+                            stripeColor: stripeColor(for: index)
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    ArticleActionsMenu(
                         article: article,
-                        stripeColor: stripeColor(for: index)
+                        isDisabled: viewModel.isMutatingArticle,
+                        isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
+                        onEdit: { viewModel.requestTitleEdit(article: article) },
+                        onDelete: { viewModel.requestDelete(article: article) }
                     )
                 }
-                .buttonStyle(.plain)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button {
-                        viewModel.requestDelete(article: article)
-                    } label: {
-                        Label("删除", systemImage: "trash")
-                    }
-                    .tint(.red)
-                }
+                .background(Color.white)
             }
         }
     }
@@ -283,12 +306,9 @@ private struct ArticleLibraryRow: View {
                 }
 
                 Spacer(minLength: 12)
-
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(Color(red: 0.8, green: 0.84, blue: 0.89))
             }
-            .padding(.horizontal, 34)
+            .padding(.leading, 34)
+            .padding(.trailing, 12)
             .padding(.vertical, 18)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -298,6 +318,40 @@ private struct ArticleLibraryRow: View {
                 .fill(Color(red: 0.93, green: 0.95, blue: 0.98))
                 .frame(height: 1)
         }
+    }
+}
+
+struct ArticleActionsMenu: View {
+    let article: ArticleItem
+    let isDisabled: Bool
+    let isWorking: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        Menu {
+            Button(action: onEdit) {
+                Label("编辑标题", systemImage: "pencil")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Label("删除文章", systemImage: "trash")
+            }
+        } label: {
+            Group {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(Color(red: 0.45, green: 0.54, blue: 0.68))
+                }
+            }
+            .frame(width: 46, height: 46)
+            .contentShape(Rectangle())
+        }
+        .disabled(isDisabled)
+        .accessibilityLabel("文章操作 \(article.title)")
     }
 }
 
