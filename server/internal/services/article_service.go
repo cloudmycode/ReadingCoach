@@ -13,7 +13,7 @@ const ArticleTextAnalysisPrompt = `把正文按顺序整理成适合学习的短
 只处理用户提供的内容，不补写，不输出说明。
 输出 TSV，每行格式：英文<TAB>中文。`
 
-const WordExplainPromptTemplate = `解释用户在当前句子里点击的单词。
+const WordExplainPromptTemplate = `解释用户在当前句子里点击的单词，如果在句子中该单词涉及到短语、固定搭配等，则一并解释。
 只返回 JSON：
 {"word":"单词","part_of_speech":"词性","meaning":"当前句中的中文意思","tip":"结合当前句子的简短提示"}`
 

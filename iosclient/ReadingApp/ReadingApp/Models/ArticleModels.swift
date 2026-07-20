@@ -13,13 +13,13 @@ struct PhotoUploadItem {
     let mimeType: String
 }
 
-struct ArticleListResponse: Decodable {
+struct ArticleListResponse: Codable {
     let items: [ArticleItem]
     let limit: Int
     let offset: Int
 }
 
-struct ArticleItem: Decodable, Identifiable, Hashable {
+struct ArticleItem: Codable, Identifiable, Hashable {
     let id: String  // 加密ID
     let articleId: Int
     let title: String
@@ -79,7 +79,7 @@ struct ArticleItem: Decodable, Identifiable, Hashable {
     }
 }
 
-struct ArticleDetailResponse: Decodable {
+struct ArticleDetailResponse: Codable {
     let articleId: Int
     let title: String
     let sentenceCount: Int
@@ -109,7 +109,7 @@ struct ProcessArticleResponse: Decodable {
     }
 }
 
-struct SentenceWordExplanationResponse: Decodable {
+struct SentenceWordExplanationResponse: Codable {
     let word: String
     let partOfSpeech: String
     let meaning: String
@@ -127,7 +127,7 @@ struct SentenceWordExplanationResponse: Decodable {
     }
 }
 
-struct SentenceQuestionResponse: Decodable {
+struct SentenceQuestionResponse: Codable {
     let answer: String
     let highlights: [String]
     let sentenceId: Int
@@ -141,7 +141,7 @@ struct SentenceQuestionResponse: Decodable {
     }
 }
 
-struct ArticleSentence: Identifiable, Decodable {
+struct ArticleSentence: Identifiable, Codable {
     private let internalID: Int?
     let sentenceId: Int?
     let original: String

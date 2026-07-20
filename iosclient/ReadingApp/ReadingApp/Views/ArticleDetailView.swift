@@ -11,6 +11,7 @@ struct ArticleDetailView: View {
     @StateObject private var viewModel: ArticleDetailViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
+    private let showsBackButton: Bool
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
     @State private var questionDraft = ""
@@ -24,9 +25,13 @@ struct ArticleDetailView: View {
     @State private var articleScrollOffset: CGFloat = 0
     @State private var articleContentHeight: CGFloat = 1
     @State private var articleViewportHeight: CGFloat = 1
+    @State private var sentenceFrames: [Int: CGRect] = [:]
+    @State private var panelHeight: CGFloat = 430
+    @GestureState private var panelDragOffset: CGFloat = 0
 
-    init(articleId: String, articleTitle: String) {
+    init(articleId: String, articleTitle: String, showsBackButton: Bool = true) {
         _viewModel = StateObject(wrappedValue: ArticleDetailViewModel(articleId: articleId, initialTitle: articleTitle))
+        self.showsBackButton = showsBackButton
     }
 
     var body: some View {
@@ -72,26 +77,31 @@ struct ArticleDetailView: View {
 
     private var topBar: some View {
         HStack {
-            Button {
-                guard !isNavigatingBack else { return }
-                if let path = appNavigationPath, !path.wrappedValue.isEmpty {
-                    isNavigatingBack = true
-                    path.wrappedValue.removeLast()
-                } else {
-                    isNavigatingBack = true
-                    dismiss()
+            if showsBackButton {
+                Button {
+                    guard !isNavigatingBack else { return }
+                    if let path = appNavigationPath, !path.wrappedValue.isEmpty {
+                        isNavigatingBack = true
+                        path.wrappedValue.removeLast()
+                    } else {
+                        isNavigatingBack = true
+                        dismiss()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("Library")
+                            .font(.system(size: 18, weight: .semibold))
+                    }
+                    .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .bold))
-                    Text("Library")
-                        .font(.system(size: 18, weight: .semibold))
-                }
-                .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                .buttonStyle(.plain)
+                .disabled(isNavigatingBack)
+            } else {
+                Color.clear
+                    .frame(width: 84, height: 24)
             }
-            .buttonStyle(.plain)
-            .disabled(isNavigatingBack)
 
             Spacer()
 
@@ -103,15 +113,18 @@ struct ArticleDetailView: View {
             Spacer()
 
             Button {
-                viewModel.toggleVoiceReading()
-                if viewModel.currentSentenceIndex == nil && !viewModel.sentences.isEmpty {
-                    selectedSentenceIndex = 0
-                    pendingScrollSentenceIndex = 0
+                viewModel.toggleVoiceReading(startingAt: activeSentenceIndex)
+                if viewModel.playbackMode == .continuous,
+                   viewModel.currentSentenceIndex == nil,
+                   !viewModel.sentences.isEmpty {
+                    let startingIndex = activeSentenceIndex ?? 0
+                    selectedSentenceIndex = startingIndex
+                    pendingScrollSentenceIndex = startingIndex
                 }
             } label: {
-                Image(systemName: viewModel.isPlaying ? "speaker.wave.3.fill" : "speaker.wave.2")
+                Image(systemName: viewModel.isPlaying && viewModel.playbackMode == .continuous ? "pause.fill" : "play.fill")
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(viewModel.isPlaying ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.57, green: 0.64, blue: 0.75))
+                    .foregroundColor(viewModel.isPlaying && viewModel.playbackMode == .continuous ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.57, green: 0.64, blue: 0.75))
                     .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
@@ -161,7 +174,7 @@ struct ArticleDetailView: View {
                     .padding(.trailing, 16)
                     .padding(.horizontal, 38)
                     .padding(.top, 24)
-                    .padding(.bottom, isPanelVisible ? 450 : 120)
+                    .padding(.bottom, isPanelVisible ? panelReservedBottomSpace : 120)
                 }
                 .coordinateSpace(name: "ArticleScrollView")
                 .scrollIndicators(.hidden)
@@ -169,7 +182,7 @@ struct ArticleDetailView: View {
                     articleScrollIndicator
                         .padding(.trailing, 8)
                         .padding(.top, 20)
-                        .padding(.bottom, isPanelVisible ? 466 : 28)
+                        .padding(.bottom, isPanelVisible ? panelIndicatorBottomPadding : 28)
                 }
                 .onAppear {
                     articleViewportHeight = geometry.size.height
@@ -183,10 +196,15 @@ struct ArticleDetailView: View {
                 .onPreferenceChange(ArticleContentHeightKey.self) { value in
                     articleContentHeight = max(1, value)
                 }
+                .onPreferenceChange(SentenceFramePreferenceKey.self) { value in
+                    sentenceFrames = value
+                }
                 .onChange(of: pendingScrollSentenceIndex) { _, newValue in
                     guard let newValue else { return }
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        proxy.scrollTo(newValue, anchor: sentenceScrollAnchor)
+                    if shouldScrollSentenceIntoView(newValue) {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(newValue, anchor: sentenceScrollAnchor(for: newValue))
+                        }
                     }
                     pendingScrollSentenceIndex = nil
                 }
@@ -214,6 +232,14 @@ struct ArticleDetailView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(isSelected ? Color(red: 0.91, green: 0.96, blue: 1.0) : Color.clear)
                 )
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: SentenceFramePreferenceKey.self,
+                            value: [index: geometry.frame(in: .named("ArticleScrollView"))]
+                        )
+                    }
+                )
         }
         .buttonStyle(.plain)
     }
@@ -235,12 +261,40 @@ struct ArticleDetailView: View {
         return viewModel.sentences[activeSentenceIndex]
     }
 
-    private var sentenceScrollAnchor: UnitPoint {
-        isPanelVisible ? .top : .center
+    private func sentenceScrollAnchor(for index: Int) -> UnitPoint {
+        guard let frame = sentenceFrames[index] else {
+            return isPanelVisible ? .top : .center
+        }
+
+        if frame.minY < visibleSentenceTopInset {
+            return .top
+        }
+        return isPanelVisible ? .top : .center
+    }
+
+    private var visibleSentenceTopInset: CGFloat {
+        18
+    }
+
+    private var visibleSentenceBottomInset: CGFloat {
+        isPanelVisible ? currentPanelHeight + 16 : 20
+    }
+
+    private func shouldScrollSentenceIntoView(_ index: Int) -> Bool {
+        guard let frame = sentenceFrames[index] else { return true }
+
+        let visibleTop = visibleSentenceTopInset
+        let visibleBottom = max(articleViewportHeight - visibleSentenceBottomInset, visibleTop + 40)
+
+        if frame.minY >= visibleTop && frame.maxY <= visibleBottom {
+            return false
+        }
+
+        return true
     }
 
     private var articleScrollIndicator: some View {
-        let visibleHeight = max(articleViewportHeight - (isPanelVisible ? 466 : 28), 120)
+        let visibleHeight = max(articleViewportHeight - (isPanelVisible ? panelIndicatorBottomPadding : 28), 120)
         let totalHeight = max(articleContentHeight, visibleHeight)
         let trackHeight = max(visibleHeight - 24, 120)
         let thumbHeight = max(trackHeight * (visibleHeight / totalHeight), 44)
@@ -263,6 +317,26 @@ struct ArticleDetailView: View {
 
     private var isPanelVisible: Bool {
         activeSentence != nil
+    }
+
+    private var currentPanelHeight: CGFloat {
+        clampedPanelHeight(panelHeight - panelDragOffset)
+    }
+
+    private var minimumPanelHeight: CGFloat {
+        360
+    }
+
+    private var maximumPanelHeight: CGFloat {
+        max(min(articleViewportHeight - 24, 620), minimumPanelHeight)
+    }
+
+    private var panelReservedBottomSpace: CGFloat {
+        currentPanelHeight + 20
+    }
+
+    private var panelIndicatorBottomPadding: CGFloat {
+        currentPanelHeight + 36
     }
 
     private func bottomSheet(for sentence: ArticleSentence) -> some View {
@@ -322,7 +396,7 @@ struct ArticleDetailView: View {
         .padding(.top, 18)
         .padding(.bottom, 22)
         .frame(maxWidth: .infinity)
-        .frame(height: 430)
+        .frame(height: currentPanelHeight, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(Color.white)
@@ -341,6 +415,21 @@ struct ArticleDetailView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 30, x: 0, y: -6)
         .padding(.bottom, -10)
         .ignoresSafeArea(edges: .bottom)
+        .gesture(panelDragGesture)
+    }
+
+    private var panelDragGesture: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+            .updating($panelDragOffset) { value, state, _ in
+                state = value.translation.height
+            }
+            .onEnded { value in
+                panelHeight = clampedPanelHeight(panelHeight - value.translation.height)
+            }
+    }
+
+    private func clampedPanelHeight(_ proposedHeight: CGFloat) -> CGFloat {
+        min(max(proposedHeight, minimumPanelHeight), maximumPanelHeight)
     }
 
     private func sentenceWordBar(_ sentence: String) -> some View {
@@ -353,15 +442,23 @@ struct ArticleDetailView: View {
                         isLoadingWordExplanation = true
                         Task {
                             selectedWordNormalized = token.normalized
-                            async let speakTask: Void = ArticleAudioManager.shared.speak(
+                            let shouldPlayTranslation = !hasPlayedWordTranslationBefore(token.normalized)
+                            let explanationTask = Task {
+                                await selectWord(token.normalized, shouldPlayTranslation: false)
+                            }
+
+                            try? await ArticleAudioManager.shared.speak(
                                 sentenceId: nil,
                                 text: token.text,
                                 type: .original,
                                 style: .focusedSentence
                             )
-                            async let explainTask: Void = selectWord(token.normalized)
-                            _ = try? await speakTask
-                            await explainTask
+
+                            let spokenExplanation = await explanationTask.value
+                            if shouldPlayTranslation, let spokenExplanation {
+                                markWordTranslationPlayed(token.normalized)
+                                playTranslationAsync(spokenExplanation)
+                            }
                         }
                     } label: {
                         Text(token.text)
@@ -503,6 +600,7 @@ struct ArticleDetailView: View {
     }
 
     private func closePanel() {
+        viewModel.stopVoiceReading()
         selectedSentenceIndex = nil
         selectedWordNormalized = nil
         selectedWordExplanation = nil
@@ -539,11 +637,11 @@ struct ArticleDetailView: View {
     }
 
     private func selectWord(_ word: String) async {
-        await selectWord(word, shouldPlayTranslation: !hasPlayedWordTranslationBefore(word))
+        _ = await selectWord(word, shouldPlayTranslation: !hasPlayedWordTranslationBefore(word))
     }
 
-    private func selectWord(_ word: String, shouldPlayTranslation: Bool) async {
-        guard let activeSentence, let sentenceId = activeSentence.sentenceId else { return }
+    private func selectWord(_ word: String, shouldPlayTranslation: Bool) async -> String? {
+        guard let activeSentence, let sentenceId = activeSentence.sentenceId else { return nil }
         isLoadingWordExplanation = true
         defer { isLoadingWordExplanation = false }
 
@@ -562,16 +660,14 @@ struct ArticleDetailView: View {
                 .filter { !$0.isEmpty }
                 .joined(separator: "，")
 
-            if shouldPlayTranslation,
-               !ArticleAudioManager.shared.hasCachedAudio(text: spokenExplanation, type: .translation) {
-                markWordTranslationPlayed(word)
-                playTranslationAsync(spokenExplanation)
-            } else if shouldPlayTranslation {
+            if shouldPlayTranslation {
                 markWordTranslationPlayed(word)
             }
+            return spokenExplanation.isEmpty ? nil : spokenExplanation
         } catch {
             selectedWordExplanation = nil
             viewModel.toastMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -754,6 +850,14 @@ private struct ArticleContentHeightKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+private struct SentenceFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] = [:]
+
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

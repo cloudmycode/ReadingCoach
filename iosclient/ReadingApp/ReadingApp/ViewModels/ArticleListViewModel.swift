@@ -19,6 +19,10 @@ final class ArticleListViewModel: ObservableObject {
     @Published var currentTab: String = "article"
     
     private var hasLoaded = false
+
+    init() {
+        articles = ArticleCacheStore.shared.cachedArticles()
+    }
     
     var filteredArticles: [ArticleItem] {
         if searchKeyword.isEmpty {
@@ -43,6 +47,7 @@ final class ArticleListViewModel: ObservableObject {
         do {
             let response = try await ArticleAPI.shared.listArticles()
             articles = response.items
+            ArticleCacheStore.shared.saveArticles(response.items)
         } catch {
             toastMessage = error.localizedDescription
         }
@@ -58,6 +63,7 @@ final class ArticleListViewModel: ObservableObject {
         
         // 立即从列表中移除
         articles.removeAll { $0.id == article.id }
+        ArticleCacheStore.shared.removeArticle(articleId: article.id)
         showDeleteConfirmation = false
         articleToDelete = nil
         

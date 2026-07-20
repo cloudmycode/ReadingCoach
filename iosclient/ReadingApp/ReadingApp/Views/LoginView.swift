@@ -10,6 +10,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject var viewModel: LoginViewModel
     @FocusState private var focusedField: Field?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private enum Field {
         case phone
@@ -25,12 +26,31 @@ struct LoginView: View {
             )
             .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 24) {
-                    header
-                    form
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack {
+                        VStack(spacing: 24) {
+                            header
+                            form
+                        }
+                        .padding(24)
+                        .frame(maxWidth: loginCardWidth(for: geometry.size.width))
+                        .background(
+                            RoundedRectangle(cornerRadius: isPadLayout ? 28 : 0, style: .continuous)
+                                .fill(Color.white.opacity(isPadLayout ? 0.94 : 0.001))
+                        )
+                        .overlay {
+                            if isPadLayout {
+                                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                    .stroke(Color(red: 0.9, green: 0.93, blue: 0.98), lineWidth: 1)
+                            }
+                        }
+                        .shadow(color: Color.black.opacity(isPadLayout ? 0.06 : 0), radius: 24, x: 0, y: 16)
+                        .padding(.horizontal, isPadLayout ? 32 : 0)
+                        .padding(.top, isPadLayout ? max((geometry.size.height - 520) * 0.32, 40) : 0)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(24)
             }
 
             if viewModel.isLoading {
@@ -52,6 +72,15 @@ struct LoginView: View {
         .sheet(item: $viewModel.agreementToShow) { type in
             agreementSheet(type: type)
         }
+    }
+
+    private var isPadLayout: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private func loginCardWidth(for availableWidth: CGFloat) -> CGFloat {
+        guard isPadLayout else { return .infinity }
+        return min(availableWidth - 64, 440)
     }
 
     private var header: some View {

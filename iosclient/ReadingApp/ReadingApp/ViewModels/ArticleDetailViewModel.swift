@@ -10,6 +10,11 @@ import Combine
 
 @MainActor
 final class ArticleDetailViewModel: ObservableObject {
+    enum PlaybackMode {
+        case continuous
+        case singleSentence
+    }
+
     @Published var title: String
     @Published var sentences: [ArticleSentence] = []
     @Published var isLoading: Bool = false
@@ -17,13 +22,20 @@ final class ArticleDetailViewModel: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentSentenceIndex: Int?
     @Published var currentPlayingType: SentenceAudioType?
+    @Published private(set) var playbackMode: PlaybackMode?
     
     private let articleId: String
     private var hasLoaded = false
     private var audioTask: Task<Void, Never>?
+    private var continuousPlaybackStartIndex = 0
     init(articleId: String, initialTitle: String) {
         self.articleId = articleId
-        self.title = initialTitle
+        if let cachedDetail = ArticleCacheStore.shared.cachedArticleDetail(articleId: articleId) {
+            self.title = cachedDetail.title.isEmpty ? initialTitle : cachedDetail.title
+            self.sentences = cachedDetail.sentences
+        } else {
+            self.title = initialTitle
+        }
     }
     
     deinit {
@@ -48,6 +60,7 @@ final class ArticleDetailViewModel: ObservableObject {
             let detail = try await ArticleAPI.shared.getArticleDetail(articleId: articleId)
             title = detail.title
             sentences = detail.sentences
+            ArticleCacheStore.shared.saveArticleDetail(detail, articleId: articleId)
         } catch {
             toastMessage = error.localizedDescription
         }
@@ -88,9 +101,12 @@ final class ArticleDetailViewModel: ObservableObject {
             return
         }
         
+        stopContinuousPlayback(resetProgress: true)
         stopVoiceReading(resetPosition: true)
+        playbackMode = .singleSentence
         audioTask = Task {
             do {
+                isPlaying = false
                 currentSentenceIndex = index
                 try await playText(sentenceId: sentence.sentenceId, sentence.original, type: .original, style: .focusedSentence)
             } catch is CancellationError {
@@ -100,37 +116,47 @@ final class ArticleDetailViewModel: ObservableObject {
             }
             currentSentenceIndex = nil
             currentPlayingType = nil
+            playbackMode = nil
         }
     }
     
-    func toggleVoiceReading() {
-        if isPlaying {
-            stopVoiceReading()
+    func toggleVoiceReading(startingAt preferredIndex: Int?) {
+        if playbackMode == .continuous, isPlaying {
+            pauseContinuousPlayback()
         } else {
-            startVoiceReading()
+            startContinuousPlayback(startingAt: preferredIndex)
         }
     }
     
     func stopVoiceReading() {
+        stopContinuousPlayback(resetProgress: true)
         stopVoiceReading(resetPosition: true)
     }
     
-    private func startVoiceReading() {
+    private func startContinuousPlayback(startingAt preferredIndex: Int?) {
         guard !sentences.isEmpty else {
             toastMessage = "暂无可播放的句子"
             return
         }
+        if let preferredIndex, sentences.indices.contains(preferredIndex) {
+            continuousPlaybackStartIndex = preferredIndex
+        } else if continuousPlaybackStartIndex >= sentences.count {
+            continuousPlaybackStartIndex = 0
+        }
+        playbackMode = .continuous
         stopVoiceReading(resetPosition: false)
         isPlaying = true
         audioTask = Task { [weak self] in
-            await self?.playSequence()
+            await self?.playSequence(startingAt: self?.continuousPlaybackStartIndex ?? 0)
         }
     }
     
-    private func playSequence() async {
-        for (index, sentence) in sentences.enumerated() {
+    private func playSequence(startingAt startIndex: Int) async {
+        for index in startIndex..<sentences.count {
             if Task.isCancelled { return }
+            let sentence = sentences[index]
             currentSentenceIndex = index
+            continuousPlaybackStartIndex = index
 
             do {
                 try await playText(
@@ -146,6 +172,7 @@ final class ArticleDetailViewModel: ObservableObject {
                 break
             }
         }
+        stopContinuousPlayback(resetProgress: true)
         stopVoiceReading(resetPosition: true)
     }
     
@@ -168,5 +195,31 @@ final class ArticleDetailViewModel: ObservableObject {
             currentSentenceIndex = nil
         }
         isPlaying = false
+    }
+
+    private func pauseContinuousPlayback() {
+        guard playbackMode == .continuous else { return }
+        audioTask?.cancel()
+        audioTask = nil
+        ArticleAudioManager.shared.stop()
+        currentPlayingType = nil
+        isPlaying = false
+        if let currentSentenceIndex {
+            continuousPlaybackStartIndex = currentSentenceIndex
+        }
+    }
+
+    private func stopContinuousPlayback(resetProgress: Bool) {
+        if playbackMode == .continuous {
+            audioTask?.cancel()
+            audioTask = nil
+            ArticleAudioManager.shared.stop()
+            currentPlayingType = nil
+            isPlaying = false
+            playbackMode = nil
+        }
+        if resetProgress {
+            continuousPlaybackStartIndex = 0
+        }
     }
 }

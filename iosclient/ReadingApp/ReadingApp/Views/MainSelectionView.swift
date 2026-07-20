@@ -31,28 +31,35 @@ extension EnvironmentValues {
 
 struct MainSelectionView: View {
     @State private var navigationPath = NavigationPath()
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            ArticleListView()
-                .environment(\.appNavigationPath, $navigationPath)
-            .navigationBarHidden(true)
-            .navigationDestination(for: AppNavigationRoute.self) { route in
-                Group {
-                    switch route {
-                    case .articleRoute(let articleRoute):
-                        switch articleRoute {
-                        case .article(let article):
-                            ArticleDetailView(articleId: article.id, articleTitle: article.title)
-                                .environment(\.appNavigationPath, $navigationPath)
-                        case .cameraResult(let articleId):
-                            ArticleDetailView(articleId: articleId, articleTitle: "图片解析文章")
-                                .environment(\.appNavigationPath, $navigationPath)
+        Group {
+            if horizontalSizeClass == .regular {
+                ArticleSplitView()
+            } else {
+                NavigationStack(path: $navigationPath) {
+                    ArticleListView()
+                        .environment(\.appNavigationPath, $navigationPath)
+                        .navigationBarHidden(true)
+                        .navigationDestination(for: AppNavigationRoute.self) { route in
+                            Group {
+                                switch route {
+                                case .articleRoute(let articleRoute):
+                                    switch articleRoute {
+                                    case .article(let article):
+                                        ArticleDetailView(articleId: article.id, articleTitle: article.title)
+                                            .environment(\.appNavigationPath, $navigationPath)
+                                    case .cameraResult(let articleId):
+                                        ArticleDetailView(articleId: articleId, articleTitle: "图片解析文章")
+                                            .environment(\.appNavigationPath, $navigationPath)
+                                    }
+                                case .stats:
+                                    StatsView()
+                                        .environment(\.appNavigationPath, $navigationPath)
+                                }
+                            }
                         }
-                    case .stats:
-                        StatsView()
-                            .environment(\.appNavigationPath, $navigationPath)
-                    }
                 }
             }
         }
