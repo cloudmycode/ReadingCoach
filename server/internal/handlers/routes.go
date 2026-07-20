@@ -44,6 +44,7 @@ type APIGroup struct {
 // │ GET     │ /api/articles/:id        │  是  │ 获取文章详情             │
 // │ DELETE  │ /api/articles/:id        │  是  │ 删除文章                 │
 // │ POST    │ /api/articles/process-text│ 是  │ 解析正文并生成文章       │
+// │ POST    │ /api/articles/:id/sentences/:sentence_id              │ 是 │ 修改句子并重译 │
 // │ POST    │ /api/articles/:id/sentences/:sentence_id/explain-word │ 是 │ 解释句子单词 │
 // │ POST    │ /api/articles/:id/sentences/:sentence_id/ask          │ 是 │ 围绕句子提问 │
 // │ GET     │ /api/stats/overview      │  是  │ 获取学习统计概览         │
@@ -68,6 +69,7 @@ func (h *Handlers) APIRoutes() []APIGroup {
 				{http.MethodGet, "/:id", true, "获取文章详情", h.Article.GetArticleDetail},
 				{http.MethodDelete, "/:id", true, "删除文章", h.Article.DeleteArticle},
 				{http.MethodPost, "/process-text", true, "解析正文并生成文章", h.Article.ProcessArticleText},
+				{http.MethodPost, "/:id/sentences/:sentence_id", true, "修改句子并重新翻译", h.Article.UpdateSentence},
 				{http.MethodPost, "/:id/sentences/:sentence_id/explain-word", true, "解释句子中的单词", h.Article.ExplainSentenceWord},
 				{http.MethodPost, "/:id/sentences/:sentence_id/ask", true, "围绕句子提问", h.Article.AskSentenceQuestion},
 			},

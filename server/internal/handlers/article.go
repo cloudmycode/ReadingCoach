@@ -39,6 +39,14 @@ type askSentenceReq struct {
 	Question string `json:"question"`
 }
 
+type updateSentenceReq struct {
+	Original string `json:"original"`
+}
+
+type sentenceTranslationResp struct {
+	Translation string `json:"translation"`
+}
+
 type explainWordResp struct {
 	Word         string `json:"word"`
 	PartOfSpeech string `json:"part_of_speech"`
@@ -325,6 +333,67 @@ func (h *ArticleHandler) ExplainSentenceWord(c *gin.Context) {
 	response.ArticleID = utils.EncryptID(articleID)
 
 	jsonOK(c, "获取成功", response)
+}
+
+func (h *ArticleHandler) UpdateSentence(c *gin.Context) {
+	articleID, sentenceID, userID, ok := h.parseSentenceRouteContext(c)
+	if !ok {
+		return
+	}
+	if h.textAnalyzer == nil {
+		jsonError(c, http.StatusServiceUnavailable, "AI 服务未配置")
+		return
+	}
+
+	var req updateSentenceReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	original := strings.TrimSpace(req.Original)
+	if original == "" {
+		jsonError(c, http.StatusBadRequest, "句子内容不能为空")
+		return
+	}
+
+	sentence, err := h.articleService.GetSentenceStudyContext(c.Request.Context(), articleID, sentenceID, userID)
+	if err != nil {
+		h.handleSentenceContextError(c, err)
+		return
+	}
+	prompt := fmt.Sprintf(`请把下面修改后的英文句子准确、自然地翻译为简体中文。
+只返回 JSON，不要添加解释或 Markdown：{"translation":"中文翻译"}
+
+文章标题：%s
+英文句子：%s`, sentence.ArticleTitle, original)
+	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+	if err != nil {
+		logger.Error("❌ 句子翻译失败: %v", err)
+		jsonError(c, http.StatusInternalServerError, "生成句子翻译失败")
+		return
+	}
+
+	var translated sentenceTranslationResp
+	if err := decodeJSONObject(raw, &translated); err != nil || strings.TrimSpace(translated.Translation) == "" {
+		logger.Error("❌ 句子翻译解析失败: %v raw=%s", err, raw)
+		jsonError(c, http.StatusInternalServerError, "句子翻译解析失败")
+		return
+	}
+
+	updated, err := h.articleService.UpdateSentenceContent(
+		c.Request.Context(), articleID, sentenceID, userID, original, translated.Translation,
+	)
+	if err != nil {
+		if err.Error() == "sentence not found" {
+			jsonError(c, http.StatusNotFound, "句子不存在")
+			return
+		}
+		logger.Error("❌ 更新句子失败: %v", err)
+		jsonError(c, http.StatusInternalServerError, "更新句子失败")
+		return
+	}
+
+	jsonOK(c, "更新成功", updated)
 }
 
 func (h *ArticleHandler) AskSentenceQuestion(c *gin.Context) {

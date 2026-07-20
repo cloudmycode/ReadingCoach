@@ -29,17 +29,43 @@ mkdir -p "$(dirname "${BIN_PATH}")"
     go build -buildvcs=false -trimpath -o "${BIN_PATH}" ./cmd/server
 )
 
+echo "==> 停止远程 ${APP_NAME}（便于覆盖二进制）"
+ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "
+  APP='${REMOTE_DIR}/${APP_NAME}'
+  if command -v systemctl >/dev/null 2>&1 && systemctl cat '${APP_NAME}' >/dev/null 2>&1; then
+    systemctl stop '${APP_NAME}' || true
+    echo '已通过 systemd 停止服务'
+  elif pgrep -f \"\${APP}\" >/dev/null 2>&1; then
+    pkill -f \"\${APP}\" || true
+    sleep 1
+    echo '已终止进程'
+  else
+    echo '未发现运行中的进程'
+  fi
+"
+
 echo "==> 拷贝到 ${REMOTE_HOST}:${REMOTE_DIR}/${APP_NAME}"
 ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "mkdir -p '${REMOTE_DIR}'"
 scp -P "${SSH_PORT}" "${BIN_PATH}" "${REMOTE_HOST}:${REMOTE_DIR}/${APP_NAME}"
 
 # 服务器没有 config.json 时才拷贝一份模板，避免覆盖已填好的生产配置。
+CONFIG_UPLOADED=false
 if ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "test -f '${REMOTE_DIR}/config.json'"; then
   echo "==> 远程已存在 config.json，保持不变"
 else
   echo "==> 远程缺少 config.json，上传模板 config.example.json"
   scp -P "${SSH_PORT}" "${SERVER_DIR}/config.example.json" "${REMOTE_HOST}:${REMOTE_DIR}/config.json"
+  CONFIG_UPLOADED=true
   echo "    ⚠️  请登录服务器编辑 ${REMOTE_DIR}/config.json 填写生产配置后再启动服务"
+fi
+
+if [[ "${CONFIG_UPLOADED}" == "true" ]]; then
+  echo "==> 跳过重启：请先编辑远程 config.json"
+elif ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "command -v systemctl >/dev/null 2>&1 && systemctl cat '${APP_NAME}' >/dev/null 2>&1"; then
+  echo "==> 重启远程 ${APP_NAME}"
+  ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "systemctl restart '${APP_NAME}' && systemctl status '${APP_NAME}' --no-pager"
+else
+  echo "==> 未安装 systemd 服务，请手动启动 ${REMOTE_DIR}/${APP_NAME}"
 fi
 
 echo "==> 完成"

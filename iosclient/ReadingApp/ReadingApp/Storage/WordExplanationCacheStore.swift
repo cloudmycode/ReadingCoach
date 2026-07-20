@@ -107,6 +107,18 @@ final class WordExplanationCacheStore {
         }
     }
 
+    func removeExplanations(sentenceId: Int) {
+        guard sentenceId > 0 else { return }
+        queue.sync {
+            guard let database else { return }
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_prepare_v2(database, "DELETE FROM word_explanations WHERE sentence_id = ?", -1, &statement, nil) == SQLITE_OK else { return }
+            sqlite3_bind_int(statement, 1, Int32(sentenceId))
+            sqlite3_step(statement)
+        }
+    }
+
     private func openDatabase() {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first

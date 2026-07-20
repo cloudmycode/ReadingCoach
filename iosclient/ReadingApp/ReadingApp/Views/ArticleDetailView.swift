@@ -20,6 +20,9 @@ struct ArticleDetailView: View {
     @State private var chatMessages: [DetailChatMessage] = []
     @State private var isLoadingWordExplanation = false
     @State private var isSubmittingQuestion = false
+    @State private var isEditingSentence = false
+    @State private var sentenceEditDraft = ""
+    @State private var isSavingSentence = false
     @State private var hasActivatedChatScroll = false
     @State private var pendingScrollSentenceIndex: Int?
     @State private var articleScrollOffset: CGFloat = 0
@@ -356,7 +359,31 @@ struct ArticleDetailView: View {
             ScrollView(showsIndicators: false) {
                 ScrollViewReader { proxy in
                     VStack(alignment: .leading, spacing: 12) {
-                        sentenceWordBar(sentence.original)
+                        if isEditingSentence {
+                            sentenceEditor
+                        } else {
+                            HStack(alignment: .top, spacing: 10) {
+                                sentenceWordBar(sentence.original)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Button {
+                                    sentenceEditDraft = sentence.original
+                                    isEditingSentence = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                                        .frame(width: 30, height: 30)
+                                        .background(
+                                            Circle()
+                                                .fill(Color(red: 0.91, green: 0.96, blue: 1.0))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(sentence.sentenceId == nil)
+                                .accessibilityLabel("编辑句子")
+                            }
+                        }
 
                         if isLoadingWordExplanation {
                             ProgressView("正在生成单词解释…")
@@ -478,6 +505,56 @@ struct ArticleDetailView: View {
                 }
             }
         }
+    }
+
+    private var sentenceEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("修改原句")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
+
+            TextEditor(text: $sentenceEditDraft)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 92)
+                .padding(10)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(red: 0.82, green: 0.87, blue: 0.94), lineWidth: 1)
+                )
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("取消") {
+                    isEditingSentence = false
+                    sentenceEditDraft = ""
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSavingSentence)
+
+                Button {
+                    Task { await saveSentence() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSavingSentence {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(isSavingSentence ? "翻译并保存中" : "保存")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSaveSentence)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
+        )
     }
 
     private func wordDefinitionCard(for explanation: WordExplanation) -> some View {
@@ -604,6 +681,8 @@ struct ArticleDetailView: View {
         selectedSentenceIndex = nil
         selectedWordNormalized = nil
         selectedWordExplanation = nil
+        isEditingSentence = false
+        sentenceEditDraft = ""
     }
 
     private func playTranslationAsync(_ text: String) {
@@ -677,6 +756,8 @@ struct ArticleDetailView: View {
             selectedWordNormalized = nil
             selectedWordExplanation = nil
             questionDraft = ""
+            isEditingSentence = false
+            sentenceEditDraft = ""
             return
         }
 
@@ -684,6 +765,8 @@ struct ArticleDetailView: View {
         selectedWordExplanation = nil
         questionDraft = ""
         hasActivatedChatScroll = false
+        isEditingSentence = false
+        sentenceEditDraft = ""
         chatMessages = [
             DetailChatMessage(
                 role: .interpretation,
@@ -702,6 +785,33 @@ struct ArticleDetailView: View {
         if let sentenceId = activeSentence.sentenceId {
             chatMessages.append(contentsOf: SentenceChatCacheStore.shared.messages(for: sentenceId))
         }
+    }
+
+    private func saveSentence() async {
+        let original = sentenceEditDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSaveSentence, let index = activeSentenceIndex else { return }
+
+        isSavingSentence = true
+        defer { isSavingSentence = false }
+        do {
+            try await viewModel.updateSentence(at: index, original: original)
+            if let sentenceId = activeSentence?.sentenceId {
+                SentenceChatCacheStore.shared.removeMessages(for: sentenceId)
+            }
+            isEditingSentence = false
+            sentenceEditDraft = ""
+            selectedWordNormalized = nil
+            selectedWordExplanation = nil
+            refreshInteractivePanel()
+        } catch {
+            viewModel.toastMessage = error.localizedDescription
+        }
+    }
+
+    private var canSaveSentence: Bool {
+        let draft = sentenceEditDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let original = activeSentence?.original.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !isSavingSentence && !draft.isEmpty && draft != original
     }
 
     private func submitQuestion() async {
@@ -785,6 +895,12 @@ private final class SentenceChatCacheStore {
     func save(messages: [DetailChatMessage], for sentenceId: Int) {
         var cache = loadCache()
         cache[sentenceId] = messages
+        saveCache(cache)
+    }
+
+    func removeMessages(for sentenceId: Int) {
+        var cache = loadCache()
+        cache.removeValue(forKey: sentenceId)
         saveCache(cache)
     }
 

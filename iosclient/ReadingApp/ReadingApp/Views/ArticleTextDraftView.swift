@@ -41,6 +41,7 @@ struct ArticleTextDraftView: View {
                 }
             }
         }
+        .interactiveDismissDisabled()
         .task {
             guard startByCapturing, !hasAutoOpenedCamera else { return }
             hasAutoOpenedCamera = true
@@ -48,8 +49,8 @@ struct ArticleTextDraftView: View {
         }
         .fullScreenCover(isPresented: $isCameraPresented) {
             CameraCaptureView(
-                onSubmit: { uploadItems in
-                    try await TextRecognitionService.shared.recognizeArticleText(from: uploadItems)
+                onSubmit: { uploadItem in
+                    try await TextRecognitionService.shared.recognizeArticleText(from: uploadItem)
                 },
                 onSuccess: { recognizedText in
                     appendRecognizedText(recognizedText)

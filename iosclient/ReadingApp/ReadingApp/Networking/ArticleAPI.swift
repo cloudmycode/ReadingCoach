@@ -71,6 +71,15 @@ struct ArticleAPI {
             responseType: SentenceQuestionResponse.self
         )
     }
+
+    func updateSentence(articleId: String, sentenceId: Int, original: String) async throws -> ArticleSentence {
+        try await networkManager.request(
+            endpoint: "articles/\(articleId)/sentences/\(sentenceId)",
+            method: "POST",
+            body: ["original": original],
+            responseType: ArticleSentence.self
+        )
+    }
 }
 
 // 用于不需要返回数据的响应

@@ -92,6 +92,13 @@ struct ArticleDetailResponse: Codable {
         case sentences
     }
 
+    init(articleId: Int, title: String, sentenceCount: Int, sentences: [ArticleSentence]) {
+        self.articleId = articleId
+        self.title = title
+        self.sentenceCount = sentenceCount
+        self.sentences = sentences
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         articleId = try container.decodeIfPresent(Int.self, forKey: .articleId) ?? 0

@@ -92,6 +92,33 @@ final class ArticleDetailViewModel: ObservableObject {
     func askQuestion(sentenceId: Int, question: String) async throws -> SentenceQuestionResponse {
         try await ArticleAPI.shared.askSentence(articleId: articleId, sentenceId: sentenceId, question: question)
     }
+
+    func updateSentence(at index: Int, original: String) async throws {
+        guard sentences.indices.contains(index), let sentenceId = sentences[index].sentenceId else {
+            throw APIError.server(message: "句子信息无效")
+        }
+
+        let updated = try await ArticleAPI.shared.updateSentence(
+            articleId: articleId,
+            sentenceId: sentenceId,
+            original: original
+        )
+        sentences[index] = updated
+        WordExplanationCacheStore.shared.removeExplanations(sentenceId: sentenceId)
+        ArticleCacheStore.shared.saveArticleDetail(
+            ArticleDetailResponse(
+                articleId: cachedNumericArticleId,
+                title: title,
+                sentenceCount: sentences.count,
+                sentences: sentences
+            ),
+            articleId: articleId
+        )
+    }
+
+    private var cachedNumericArticleId: Int {
+        ArticleCacheStore.shared.cachedArticleDetail(articleId: articleId)?.articleId ?? 0
+    }
     
     func playSentence(at index: Int) {
         guard sentences.indices.contains(index) else { return }

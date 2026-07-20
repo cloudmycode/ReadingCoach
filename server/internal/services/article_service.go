@@ -181,6 +181,62 @@ type ArticleSentence struct {
 	IsFavorite  bool   `json:"is_favorite"`
 }
 
+// UpdateSentenceContent 更新当前用户文章中的单句原文和翻译。
+func (s *ArticleService) UpdateSentenceContent(
+	ctx context.Context,
+	articleID, sentenceID int64,
+	userID int,
+	original, translation string,
+) (*ArticleSentence, error) {
+	if err := s.validateService(); err != nil {
+		return nil, err
+	}
+	original = strings.TrimSpace(original)
+	translation = strings.TrimSpace(translation)
+	if articleID <= 0 || sentenceID <= 0 || userID <= 0 || original == "" || translation == "" {
+		return nil, fmt.Errorf("invalid sentence update")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE article_sentences s
+		JOIN articles a ON a.article_id = s.article_id
+		SET s.original_text = ?, s.translation = ?, s.updated_at = NOW(), a.updated_at = NOW()
+		WHERE s.article_id = ? AND s.sentence_id = ? AND a.user_id = ?
+	`, original, translation, articleID, sentenceID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("update sentence: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("read update result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("sentence not found")
+	}
+
+	// Existing explanations were generated from the previous sentence content.
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM word_explanations_cache WHERE sentence_id = ?`, sentenceID)
+
+	row := s.db.QueryRowContext(ctx, `
+		SELECT sentence_order, is_favorite
+		FROM article_sentences
+		WHERE article_id = ? AND sentence_id = ?
+	`, articleID, sentenceID)
+	var order int
+	var isFavorite bool
+	if err := row.Scan(&order, &isFavorite); err != nil {
+		return nil, fmt.Errorf("query updated sentence: %w", err)
+	}
+
+	return &ArticleSentence{
+		ID:          order - 1,
+		SentenceID:  sentenceID,
+		Original:    original,
+		Translation: translation,
+		IsFavorite:  isFavorite,
+	}, nil
+}
+
 // ArticleSummary 文章列表项
 type ArticleSummary struct {
 	ArticleID     int64      `json:"article_id"`

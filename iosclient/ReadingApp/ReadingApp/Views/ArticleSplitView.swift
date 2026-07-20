@@ -32,7 +32,7 @@ struct ArticleSplitView: View {
             ensureSelectedArticle()
         }
         .animation(.easeInOut(duration: 0.22), value: isSidebarCollapsed)
-        .sheet(isPresented: $isDraftPresented) {
+        .fullScreenCover(isPresented: $isDraftPresented) {
             ArticleTextDraftView(
                 onSubmitted: { articleId in
                     selectedArticleId = articleId

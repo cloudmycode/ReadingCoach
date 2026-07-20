@@ -26,22 +26,13 @@ enum TextRecognitionError: LocalizedError {
 final class TextRecognitionService {
     static let shared = TextRecognitionService()
     
-    func recognizeArticleText(from items: [PhotoUploadItem]) async throws -> String {
-        var blocks: [String] = []
-        
-        for item in items {
-            let text = try await recognizeText(from: item.data)
-            let normalized = normalizeRecognizedText(text)
-            if !normalized.isEmpty {
-                blocks.append(normalized)
-            }
-        }
-        
-        let merged = blocks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        if merged.isEmpty {
+    func recognizeArticleText(from item: PhotoUploadItem) async throws -> String {
+        let text = try await recognizeText(from: item.data)
+        let normalized = normalizeRecognizedText(text)
+        if normalized.isEmpty {
             throw TextRecognitionError.noTextFound
         }
-        return merged
+        return normalized
     }
     
     private func recognizeText(from imageData: Data) async throws -> String {
