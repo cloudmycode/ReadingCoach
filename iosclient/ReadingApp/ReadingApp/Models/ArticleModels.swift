@@ -51,6 +51,26 @@ struct ArticleItem: Codable, Identifiable, Hashable {
         createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         lastReadAt = try container.decodeIfPresent(String.self, forKey: .lastReadAt)
     }
+
+    init(
+        id: String,
+        articleId: Int,
+        title: String,
+        sentenceCount: Int,
+        wordCount: Int,
+        readCount: Int,
+        createdAt: String,
+        lastReadAt: String?
+    ) {
+        self.id = id
+        self.articleId = articleId
+        self.title = title
+        self.sentenceCount = sentenceCount
+        self.wordCount = wordCount
+        self.readCount = readCount
+        self.createdAt = createdAt
+        self.lastReadAt = lastReadAt
+    }
     
     // 格式化日期显示
     var lastReadDisplay: String {
@@ -175,5 +195,62 @@ struct ArticleSentence: Identifiable, Codable {
             return "idx_\(internalID)"
         }
         return UUID().uuidString
+    }
+}
+
+struct ReviewTasksResponse: Codable {
+    let items: [ReviewTaskItem]
+    let status: String
+}
+
+struct ReviewTaskCompletionResponse: Codable {
+    let completed: Bool
+    let taskId: Int64?
+    let articleId: String
+    let articleTitle: String?
+    let sentenceCount: Int?
+    let wordCount: Int?
+    let scheduledFor: String?
+    let status: String?
+    let completedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case completed
+        case taskId = "task_id"
+        case articleId = "article_id"
+        case articleTitle = "article_title"
+        case sentenceCount = "sentence_count"
+        case wordCount = "word_count"
+        case scheduledFor = "scheduled_for"
+        case status
+        case completedAt = "completed_at"
+    }
+}
+
+struct ReviewTaskItem: Identifiable, Codable, Hashable {
+    let taskId: Int64
+    let articleId: String
+    let articleTitle: String
+    let sentenceCount: Int
+    let wordCount: Int
+    let scheduledFor: String
+    let status: String
+    let startedAt: String?
+    let completedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case articleId = "article_id"
+        case articleTitle = "article_title"
+        case sentenceCount = "sentence_count"
+        case wordCount = "word_count"
+        case scheduledFor = "scheduled_for"
+        case status
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+    }
+
+    var id: String {
+        String(taskId)
     }
 }

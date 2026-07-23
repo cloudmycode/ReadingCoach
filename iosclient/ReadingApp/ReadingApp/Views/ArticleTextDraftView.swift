@@ -18,6 +18,7 @@ struct ArticleTextDraftView: View {
     @State private var isSubmitting = false
     @State private var hasAutoOpenedCamera = false
     @State private var alertMessage: String?
+    @FocusState private var isEditorFocused: Bool
     
     var body: some View {
         NavigationStack {
@@ -25,12 +26,20 @@ struct ArticleTextDraftView: View {
                 Color(red: 0.97, green: 0.98, blue: 0.97)
                     .ignoresSafeArea()
                 
-                VStack(spacing: 0) {
-                    headerCard
-                    editorSection
-                    bottomActions
+                ScrollView {
+                    VStack(spacing: 0) {
+                        headerCard
+                        editorSection
+                        bottomActions
+                    }
+                    .padding(.bottom, 20)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isEditorFocused = false
+            }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("正文草稿")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -96,11 +105,12 @@ struct ArticleTextDraftView: View {
             }
             
             TextEditor(text: $draftText)
+                .focused($isEditorFocused)
                 .scrollContentBackground(.hidden)
                 .padding(12)
                 .background(Color.white)
                 .cornerRadius(16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 320)
                 .overlay(alignment: .topLeading) {
                     if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("先拍照识别，或直接在这里粘贴/输入英文正文")
@@ -112,6 +122,7 @@ struct ArticleTextDraftView: View {
                 }
         }
         .padding(.horizontal, 16)
+        .padding(.bottom, 12)
     }
     
     private var bottomActions: some View {

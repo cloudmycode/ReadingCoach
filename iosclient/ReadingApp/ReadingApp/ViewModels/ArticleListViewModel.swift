@@ -21,7 +21,7 @@ final class ArticleListViewModel: ObservableObject {
     @Published var titleDraft = ""
     @Published private(set) var updatingTitleArticleId: String?
     @Published var searchKeyword: String = ""
-    @Published var currentTab: String = "article"
+    @Published var currentTab: String = "list"
     
     private var hasLoaded = false
     private var toastDismissWorkItem: DispatchWorkItem?
@@ -95,6 +95,9 @@ final class ArticleListViewModel: ObservableObject {
             try await ArticleAPI.shared.deleteArticle(articleId: article.id)
             articles.removeAll { $0.id == article.id }
             ArticleCacheStore.shared.removeArticle(articleId: article.id)
+            await MainActor.run {
+                NotificationCenter.default.post(name: .reviewTasksDidChange, object: nil)
+            }
             return true
         } catch {
             showToast(error.localizedDescription)

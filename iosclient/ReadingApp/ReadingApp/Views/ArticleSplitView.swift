@@ -1,11 +1,18 @@
 import SwiftUI
 
+private enum SplitSidebarTab: String {
+    case list
+    case tasks
+}
+
 struct ArticleSplitView: View {
     @StateObject private var viewModel = ArticleListViewModel()
+    @StateObject private var reviewTasksViewModel = ReviewTasksViewModel()
     @State private var selectedArticleId: String?
     @State private var isSidebarCollapsed = false
     @State private var isDraftPresented = false
     @State private var isStatsPresented = false
+    @State private var selectedSidebarTab: SplitSidebarTab = .list
 
     private let sidebarWidth: CGFloat = 350
 
@@ -27,9 +34,15 @@ struct ArticleSplitView: View {
         .task {
             await viewModel.loadArticles()
             ensureSelectedArticle()
+            await reviewTasksViewModel.loadTasks()
         }
         .onChange(of: viewModel.articles) { _, _ in
             ensureSelectedArticle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewTasksDidChange)) { _ in
+            Task {
+                await reviewTasksViewModel.loadTasks()
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: isSidebarCollapsed)
         .fullScreenCover(isPresented: $isDraftPresented) {
@@ -117,51 +130,80 @@ struct ArticleSplitView: View {
             .padding(.top, 24)
             .padding(.bottom, 16)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(groupedArticles) { group in
-                        VStack(spacing: 0) {
-                            HStack {
-                                Text(group.title)
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
-                                    .tracking(1.0)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 10)
-                            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-
-                            ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
-                                HStack(spacing: 0) {
-                                    Button {
-                                        selectedArticleId = article.id
-                                    } label: {
-                                        SplitArticleRow(
-                                            article: article,
-                                            stripeColor: stripeColor(for: index),
-                                            isSelected: selectedArticleId == article.id
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    ArticleActionsMenu(
-                                        article: article,
-                                        isDisabled: viewModel.isMutatingArticle,
-                                        isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
-                                        onEdit: { viewModel.requestTitleEdit(article: article) },
-                                        onDelete: { viewModel.requestDelete(article: article) }
-                                    )
-                                }
-                                .background(selectedArticleId == article.id ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)
-                            }
-                        }
+            HStack(spacing: 10) {
+                sidebarTabButton(title: "列表", isActive: selectedSidebarTab == .list) {
+                    selectedSidebarTab = .list
+                }
+                sidebarTabButton(title: "任务", isActive: selectedSidebarTab == .tasks) {
+                    selectedSidebarTab = .tasks
+                    Task {
+                        await reviewTasksViewModel.loadTasks()
                     }
                 }
-                .padding(.bottom, 24)
             }
-            .refreshable {
-                await viewModel.refreshArticles()
+            .padding(.horizontal, 24)
+            .padding(.bottom, 14)
+
+            Group {
+                if selectedSidebarTab == .tasks {
+                    ReviewTasksView(
+                        viewModel: reviewTasksViewModel,
+                        onOpenArticle: { articleId, _ in
+                            selectedArticleId = articleId
+                            selectedSidebarTab = .list
+                        },
+                        onAddArticle: {
+                            isDraftPresented = true
+                        }
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(groupedArticles) { group in
+                                VStack(spacing: 0) {
+                                    HStack {
+                                        Text(group.title)
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                                            .tracking(1.0)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 10)
+                                    .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+
+                                    ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
+                                        HStack(spacing: 0) {
+                                            Button {
+                                                selectedArticleId = article.id
+                                            } label: {
+                                                SplitArticleRow(
+                                                    article: article,
+                                                    stripeColor: stripeColor(for: index),
+                                                    isSelected: selectedArticleId == article.id
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+
+                                            ArticleActionsMenu(
+                                                article: article,
+                                                isDisabled: viewModel.isMutatingArticle,
+                                                isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
+                                                onEdit: { viewModel.requestTitleEdit(article: article) },
+                                                onDelete: { viewModel.requestDelete(article: article) }
+                                            )
+                                        }
+                                        .background(selectedArticleId == article.id ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.bottom, 24)
+                    }
+                    .refreshable {
+                        await viewModel.refreshArticles()
+                    }
+                }
             }
             .overlay(alignment: .bottom) {
                 toastOverlay
@@ -258,10 +300,10 @@ struct ArticleSplitView: View {
     private var groupedArticles: [SplitArticleSectionGroup] {
         let calendar = Calendar.current
         let sorted = viewModel.filteredArticles.sorted {
-            ($0.lastReadDate ?? $0.createdDate ?? .distantPast) > ($1.lastReadDate ?? $1.createdDate ?? .distantPast)
+            ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast)
         }
         let groups = Dictionary(grouping: sorted) { article -> String in
-            let date = article.lastReadDate ?? article.createdDate ?? .distantPast
+            let date = article.createdDate ?? .distantPast
             if calendar.isDateInToday(date) {
                 return "TODAY"
             }
@@ -279,7 +321,8 @@ struct ArticleSplitView: View {
 
     @ViewBuilder
     private var toastOverlay: some View {
-        if let message = viewModel.toastMessage {
+        let message = selectedSidebarTab == .tasks ? reviewTasksViewModel.toastMessage : viewModel.toastMessage
+        if let message {
             ToastBanner(message: message)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
@@ -304,6 +347,21 @@ struct ArticleSplitView: View {
             Color(red: 0.02, green: 0.75, blue: 0.58)
         ]
         return colors[index % colors.count]
+    }
+
+    private func sidebarTabButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(isActive ? .white : Color(red: 0.4, green: 0.48, blue: 0.62))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isActive ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.95, green: 0.97, blue: 1.0))
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 

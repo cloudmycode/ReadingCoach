@@ -53,6 +53,7 @@ final class ArticleAudioManager: NSObject {
     private var audioPlayer: AVAudioPlayer?
     private var playbackContinuation: CheckedContinuation<Void, Error>?
     private var activeWebSocketTask: URLSessionWebSocketTask?
+    private var warmingCacheKeys: Set<String> = []
     private lazy var cacheDirectoryURL: URL = {
         let baseDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
@@ -71,14 +72,33 @@ final class ArticleAudioManager: NSObject {
 
         stop()
 
-        let cacheURL = cacheFileURL(sentenceId: sentenceId, text: trimmed, type: type, style: style)
-        if !fileManager.fileExists(atPath: cacheURL.path) {
-            let audioData = try await synthesizeAudio(text: trimmed, type: type, style: style)
-            try audioData.write(to: cacheURL, options: .atomic)
-        }
+        let cacheURL = try await ensureAudioCached(sentenceId: sentenceId, text: trimmed, type: type, style: style)
 
         try configureAudioSession()
         try await playAudioFile(at: cacheURL)
+    }
+
+    func preload(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let cacheKey = cacheIdentifier(sentenceId: sentenceId, text: trimmed, type: type, style: style)
+        guard !warmingCacheKeys.contains(cacheKey) else { return }
+
+        warmingCacheKeys.insert(cacheKey)
+        defer { warmingCacheKeys.remove(cacheKey) }
+
+        do {
+            _ = try await ensureAudioCached(
+                sentenceId: sentenceId,
+                text: trimmed,
+                type: type,
+                style: style,
+                tracksActiveTask: false
+            )
+        } catch {
+            // Ignore warmup failures. Tap-to-play will retry on demand.
+        }
     }
 
     func stop() {
@@ -105,7 +125,38 @@ final class ArticleAudioManager: NSObject {
         return cacheDirectoryURL.appendingPathComponent(fileName)
     }
 
-    private func synthesizeAudio(text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) async throws -> Data {
+    private func cacheIdentifier(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> String {
+        cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style).lastPathComponent
+    }
+
+    private func ensureAudioCached(
+        sentenceId: Int?,
+        text: String,
+        type: SentenceAudioType,
+        style: SpeechPlaybackStyle,
+        tracksActiveTask: Bool = true
+    ) async throws -> URL {
+        let cacheURL = cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style)
+        if fileManager.fileExists(atPath: cacheURL.path) {
+            return cacheURL
+        }
+
+        let audioData = try await synthesizeAudio(
+            text: text,
+            type: type,
+            style: style,
+            tracksActiveTask: tracksActiveTask
+        )
+        try audioData.write(to: cacheURL, options: .atomic)
+        return cacheURL
+    }
+
+    private func synthesizeAudio(
+        text: String,
+        type: SentenceAudioType,
+        style: SpeechPlaybackStyle,
+        tracksActiveTask: Bool
+    ) async throws -> Data {
         guard let url = edgeWebSocketURL() else {
             throw ArticleAudioError.synthesisFailed
         }
@@ -122,18 +173,24 @@ final class ArticleAudioManager: NSObject {
         request.setValue(EdgeTTSConfig.origin, forHTTPHeaderField: "Origin")
 
         let webSocketTask = URLSession.shared.webSocketTask(with: request)
-        activeWebSocketTask = webSocketTask
+        if tracksActiveTask {
+            activeWebSocketTask = webSocketTask
+        }
         webSocketTask.resume()
 
         do {
             try await sendSpeechConfig(to: webSocketTask)
             try await sendSSML(text: text, type: type, style: style, to: webSocketTask)
             let data = try await receiveAudioData(from: webSocketTask)
-            activeWebSocketTask = nil
+            if tracksActiveTask, activeWebSocketTask === webSocketTask {
+                activeWebSocketTask = nil
+            }
             webSocketTask.cancel(with: .normalClosure, reason: nil)
             return data
         } catch {
-            activeWebSocketTask = nil
+            if tracksActiveTask, activeWebSocketTask === webSocketTask {
+                activeWebSocketTask = nil
+            }
             webSocketTask.cancel(with: .goingAway, reason: nil)
             throw error
         }

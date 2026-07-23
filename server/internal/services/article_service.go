@@ -130,6 +130,10 @@ func (s *ArticleService) SaveAnalyzedArticle(
 		return 0, fmt.Errorf("fetch article id: %w", err)
 	}
 
+	if err = s.createNextDayReviewTaskTx(ctx, tx, userID, articleID, time.Now()); err != nil {
+		return 0, err
+	}
+
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO article_sentences (article_id, sentence_order, original_text, translation)
 		VALUES (?,?,?,?)
@@ -251,6 +255,18 @@ type ArticleSummary struct {
 	LastReadAt    *time.Time `json:"last_read_at,omitempty"`
 }
 
+type ReviewTask struct {
+	TaskID        int64      `json:"task_id"`
+	ArticleID     int64      `json:"article_id"`
+	ArticleTitle  string     `json:"article_title"`
+	SentenceCount int        `json:"sentence_count"`
+	WordCount     int        `json:"word_count"`
+	ScheduledFor  time.Time  `json:"scheduled_for"`
+	Status        string     `json:"status"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
+}
+
 // GetArticleDetail 根据文章ID获取文章详情（包括所有句子）
 func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, userID int) (*ArticleDetail, error) {
 	if err := s.validateService(); err != nil {
@@ -312,6 +328,37 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 		SentenceCount: sentenceCount,
 		Sentences:     sentences,
 	}, nil
+}
+
+func (s *ArticleService) EnsureReviewTaskTable(ctx context.Context) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS article_review_tasks (
+			task_id BIGINT NOT NULL AUTO_INCREMENT,
+			user_id INT NOT NULL,
+			article_id INT NOT NULL,
+			task_type VARCHAR(32) NOT NULL DEFAULT 'review',
+			scheduled_for DATE NOT NULL,
+			status VARCHAR(16) NOT NULL DEFAULT 'pending',
+			started_at DATETIME DEFAULT NULL,
+			completed_at DATETIME DEFAULT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL,
+			PRIMARY KEY (task_id),
+			UNIQUE KEY idx_user_article_day_type (user_id, article_id, scheduled_for, task_type),
+			KEY idx_user_status_schedule (user_id, status, scheduled_for),
+			KEY idx_user_completed_at (user_id, completed_at),
+			CONSTRAINT fk_article_review_tasks_article FOREIGN KEY (article_id) REFERENCES articles(article_id) ON DELETE CASCADE,
+			CONSTRAINT fk_article_review_tasks_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`)
+	if err != nil {
+		return fmt.Errorf("ensure review task table: %w", err)
+	}
+	return nil
 }
 
 type SentenceStudyContext struct {
@@ -708,4 +755,253 @@ func (s *ArticleService) UpdateArticleTitle(ctx context.Context, articleID int64
 		return "", fmt.Errorf("article not found")
 	}
 	return title, nil
+}
+
+func (s *ArticleService) ListReviewTasks(ctx context.Context, userID int, status string) ([]ReviewTask, error) {
+	if err := s.validateService(); err != nil {
+		return nil, err
+	}
+	if userID <= 0 {
+		return nil, fmt.Errorf("invalid user id")
+	}
+	if status != "pending" && status != "completed" {
+		return nil, fmt.Errorf("invalid status")
+	}
+
+	var query string
+	switch status {
+	case "completed":
+		query = `
+			SELECT
+				t.task_id,
+				t.article_id,
+				a.title,
+				a.sentence_count,
+				t.scheduled_for,
+				t.status,
+				t.started_at,
+				t.completed_at
+			FROM article_review_tasks t
+			JOIN articles a ON a.article_id = t.article_id
+			WHERE t.user_id = ? AND t.task_type = 'review' AND t.status = 'completed'
+			ORDER BY t.completed_at DESC, t.task_id DESC
+		`
+	default:
+		query = `
+			SELECT
+				t.task_id,
+				t.article_id,
+				a.title,
+				a.sentence_count,
+				t.scheduled_for,
+				t.status,
+				t.started_at,
+				t.completed_at
+			FROM article_review_tasks t
+			JOIN articles a ON a.article_id = t.article_id
+			WHERE t.user_id = ? AND t.task_type = 'review' AND t.status = 'pending' AND t.scheduled_for <= CURDATE()
+			ORDER BY t.scheduled_for ASC, t.task_id ASC
+		`
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query review tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []ReviewTask
+	for rows.Next() {
+		var task ReviewTask
+		var startedAt sql.NullTime
+		var completedAt sql.NullTime
+		if err := rows.Scan(
+			&task.TaskID,
+			&task.ArticleID,
+			&task.ArticleTitle,
+			&task.SentenceCount,
+			&task.ScheduledFor,
+			&task.Status,
+			&startedAt,
+			&completedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan review task: %w", err)
+		}
+		if startedAt.Valid {
+			t := startedAt.Time
+			task.StartedAt = &t
+		}
+		if completedAt.Valid {
+			t := completedAt.Time
+			task.CompletedAt = &t
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate review tasks: %w", err)
+	}
+
+	if err := s.populateReviewTaskWordCounts(ctx, tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func (s *ArticleService) CompleteReviewTaskByArticleID(ctx context.Context, articleID int64, userID int) (*ReviewTask, bool, error) {
+	if err := s.validateService(); err != nil {
+		return nil, false, err
+	}
+	if articleID <= 0 || userID <= 0 {
+		return nil, false, fmt.Errorf("invalid article id or user id")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE article_review_tasks
+		SET
+			started_at = COALESCE(started_at, NOW()),
+			completed_at = COALESCE(completed_at, NOW()),
+			status = 'completed',
+			updated_at = NOW()
+		WHERE user_id = ? AND article_id = ? AND task_type = 'review' AND status = 'pending' AND scheduled_for <= CURDATE()
+		ORDER BY scheduled_for ASC, task_id ASC
+		LIMIT 1
+	`, userID, articleID)
+	if err != nil {
+		return nil, false, fmt.Errorf("complete review task: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, fmt.Errorf("read review task completion result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, false, nil
+	}
+
+	_ = s.ensureStudyLogTable(ctx)
+	_ = recordStudyActivity(ctx, s.db, userID, time.Now(), 0, 1)
+
+	tasks, err := s.ListReviewTasksByArticleID(ctx, userID, articleID)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(tasks) == 0 {
+		return nil, false, nil
+	}
+	return &tasks[0], true, nil
+}
+
+func (s *ArticleService) ListReviewTasksByArticleID(ctx context.Context, userID int, articleID int64) ([]ReviewTask, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			t.task_id,
+			t.article_id,
+			a.title,
+			a.sentence_count,
+			t.scheduled_for,
+			t.status,
+			t.started_at,
+			t.completed_at
+		FROM article_review_tasks t
+		JOIN articles a ON a.article_id = t.article_id
+		WHERE t.user_id = ? AND t.article_id = ? AND t.task_type = 'review'
+		ORDER BY CASE WHEN t.status = 'completed' THEN 0 ELSE 1 END, t.completed_at DESC, t.scheduled_for DESC, t.task_id DESC
+	`, userID, articleID)
+	if err != nil {
+		return nil, fmt.Errorf("query review tasks by article: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []ReviewTask
+	for rows.Next() {
+		var task ReviewTask
+		var startedAt sql.NullTime
+		var completedAt sql.NullTime
+		if err := rows.Scan(
+			&task.TaskID,
+			&task.ArticleID,
+			&task.ArticleTitle,
+			&task.SentenceCount,
+			&task.ScheduledFor,
+			&task.Status,
+			&startedAt,
+			&completedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan review task by article: %w", err)
+		}
+		if startedAt.Valid {
+			t := startedAt.Time
+			task.StartedAt = &t
+		}
+		if completedAt.Valid {
+			t := completedAt.Time
+			task.CompletedAt = &t
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate review tasks by article: %w", err)
+	}
+	if err := s.populateReviewTaskWordCounts(ctx, tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func (s *ArticleService) createNextDayReviewTaskTx(ctx context.Context, tx *sql.Tx, userID int, articleID int64, createdAt time.Time) error {
+	scheduledFor := createdAt.In(time.Local).AddDate(0, 0, 1).Format("2006-01-02")
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO article_review_tasks (user_id, article_id, task_type, scheduled_for, status, updated_at)
+		VALUES (?, ?, 'review', ?, 'pending', NOW())
+		ON DUPLICATE KEY UPDATE updated_at = NOW()
+	`, userID, articleID, scheduledFor)
+	if err != nil {
+		return fmt.Errorf("create next-day review task: %w", err)
+	}
+	return nil
+}
+
+func (s *ArticleService) populateReviewTaskWordCounts(ctx context.Context, tasks []ReviewTask) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	ids := make([]any, 0, len(tasks))
+	placeholders := make([]string, 0, len(tasks))
+	indexByArticleID := make(map[int64][]int, len(tasks))
+	for index, task := range tasks {
+		ids = append(ids, task.ArticleID)
+		placeholders = append(placeholders, "?")
+		indexByArticleID[task.ArticleID] = append(indexByArticleID[task.ArticleID], index)
+	}
+
+	query := fmt.Sprintf(
+		`SELECT article_id, original_text FROM article_sentences WHERE article_id IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	rows, err := s.db.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return fmt.Errorf("query review task sentences for word count: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int, len(tasks))
+	for rows.Next() {
+		var articleID int64
+		var original string
+		if err := rows.Scan(&articleID, &original); err != nil {
+			return fmt.Errorf("scan review task sentence word count: %w", err)
+		}
+		counts[articleID] += len(articleWordPattern.FindAllString(original, -1))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate review task sentences for word count: %w", err)
+	}
+
+	for articleID, count := range counts {
+		for _, index := range indexByArticleID[articleID] {
+			tasks[index].WordCount = count
+		}
+	}
+	return nil
 }

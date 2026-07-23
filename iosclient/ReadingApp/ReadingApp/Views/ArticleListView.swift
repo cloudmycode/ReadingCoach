@@ -20,8 +20,8 @@ private struct ArticleSectionGroup: Identifiable {
 
 struct ArticleListView: View {
     @StateObject private var viewModel = ArticleListViewModel()
+    @StateObject private var reviewTasksViewModel = ReviewTasksViewModel()
     @State private var isDraftPresented = false
-    @State private var showFeatureMessage = false
     @Environment(\.appNavigationPath) private var appNavigationPath
 
     var body: some View {
@@ -38,6 +38,11 @@ struct ArticleListView: View {
         .navigationBarBackButtonHidden(true)
         .task {
             await viewModel.loadArticles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewTasksDidChange)) { _ in
+            Task {
+                await reviewTasksViewModel.loadTasks()
+            }
         }
         .alert("确认删除", isPresented: $viewModel.showDeleteConfirmation) {
             Button("取消", role: .cancel) {
@@ -65,11 +70,6 @@ struct ArticleListView: View {
         } message: {
             Text("标题不能为空，最多 60 个字符。")
         }
-        .alert("功能稍后补齐", isPresented: $showFeatureMessage) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text("这个入口先保留设计稿结构，阅读主链路已经可用。")
-        }
         .fullScreenCover(isPresented: $isDraftPresented) {
             ArticleTextDraftView(
                 onSubmitted: { articleId in
@@ -85,7 +85,7 @@ struct ArticleListView: View {
 
     private var header: some View {
         HStack(alignment: .top) {
-            Text("Library")
+            Text(viewModel.currentTab == "tasks" ? "任务" : "Library")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
@@ -116,20 +116,46 @@ struct ArticleListView: View {
     }
 
     private var articleSections: some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: []) {
-                if groupedArticles.isEmpty && !viewModel.isLoading {
-                    emptyState
-                } else {
-                    ForEach(groupedArticles) { group in
-                        sectionView(group)
+        Group {
+            if viewModel.currentTab == "tasks" {
+                ReviewTasksView(
+                    viewModel: reviewTasksViewModel,
+                    onOpenArticle: { articleId, articleTitle in
+                        let article = viewModel.articles.first(where: { $0.id == articleId }) ?? ArticleItem(
+                            id: articleId,
+                            articleId: 0,
+                            title: articleTitle,
+                            sentenceCount: 0,
+                            wordCount: 0,
+                            readCount: 0,
+                            createdAt: "",
+                            lastReadAt: nil
+                        )
+                        appNavigationPath?.wrappedValue.append(
+                            AppNavigationRoute.articleRoute(.article(article))
+                        )
+                    },
+                    onAddArticle: {
+                        isDraftPresented = true
                     }
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: []) {
+                        if groupedArticles.isEmpty && !viewModel.isLoading {
+                            emptyState
+                        } else {
+                            ForEach(groupedArticles) { group in
+                                sectionView(group)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 110)
+                }
+                .refreshable {
+                    await viewModel.refreshArticles()
                 }
             }
-            .padding(.bottom, 110)
-        }
-        .refreshable {
-            await viewModel.refreshArticles()
         }
         .overlay(alignment: .bottom) {
             toastOverlay
@@ -139,7 +165,8 @@ struct ArticleListView: View {
 
     @ViewBuilder
     private var toastOverlay: some View {
-        if let message = viewModel.toastMessage {
+        let message = viewModel.currentTab == "tasks" ? reviewTasksViewModel.toastMessage : viewModel.toastMessage
+        if let message {
             ToastBanner(message: message)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
@@ -188,10 +215,10 @@ struct ArticleListView: View {
     private var groupedArticles: [ArticleSectionGroup] {
         let calendar = Calendar.current
         let sorted = viewModel.filteredArticles.sorted {
-            ($0.lastReadDate ?? $0.createdDate ?? .distantPast) > ($1.lastReadDate ?? $1.createdDate ?? .distantPast)
+            ($0.createdDate ?? .distantPast) > ($1.createdDate ?? .distantPast)
         }
         let groups = Dictionary(grouping: sorted) { article -> String in
-            let date = article.lastReadDate ?? article.createdDate ?? .distantPast
+            let date = article.createdDate ?? .distantPast
             if calendar.isDateInToday(date) {
                 return "TODAY"
             }
@@ -242,12 +269,15 @@ struct ArticleListView: View {
 
     private var bottomTabBar: some View {
         HStack {
-            tabItem(icon: "list.bullet", title: "列表", isActive: true) {
+            tabItem(icon: "list.bullet", title: "列表", isActive: viewModel.currentTab == "list") {
                 viewModel.switchTab("list")
             }
             Spacer()
-            tabItem(icon: "play", title: "阅读", isActive: false) {
-                showFeatureMessage = true
+            tabItem(icon: "checklist", title: "任务", isActive: viewModel.currentTab == "tasks") {
+                viewModel.switchTab("tasks")
+                Task {
+                    await reviewTasksViewModel.loadTasks()
+                }
             }
             Spacer()
             tabItem(icon: "gearshape", title: "设置", isActive: false) {

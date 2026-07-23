@@ -10,6 +10,7 @@ import (
 type Handlers struct {
 	Auth    *AuthHandler
 	Article *ArticleHandler
+	Review  *ReviewHandler
 	Stats   *StatsHandler
 }
 
@@ -73,6 +74,14 @@ func (h *Handlers) APIRoutes() []APIGroup {
 				{http.MethodPost, "/:id/sentences/:sentence_id", true, "修改句子并重新翻译", h.Article.UpdateSentence},
 				{http.MethodPost, "/:id/sentences/:sentence_id/explain-word", true, "解释句子中的单词", h.Article.ExplainSentenceWord},
 				{http.MethodPost, "/:id/sentences/:sentence_id/ask", true, "围绕句子提问", h.Article.AskSentenceQuestion},
+			},
+		},
+		{
+			Prefix: "/review",
+			Desc:   "复习任务",
+			Routes: []Route{
+				{http.MethodGet, "/tasks", true, "获取复习任务列表", h.Review.ListTasks},
+				{http.MethodPost, "/articles/:id/complete", true, "完成文章复习任务", h.Review.CompleteArticleTask},
 			},
 		},
 		{

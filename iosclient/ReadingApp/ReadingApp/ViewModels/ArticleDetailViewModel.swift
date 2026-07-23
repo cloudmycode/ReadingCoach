@@ -27,12 +27,14 @@ final class ArticleDetailViewModel: ObservableObject {
     private let articleId: String
     private var hasLoaded = false
     private var audioTask: Task<Void, Never>?
+    private var preloadTask: Task<Void, Never>?
     private var continuousPlaybackStartIndex = 0
     init(articleId: String, initialTitle: String) {
         self.articleId = articleId
         if let cachedDetail = ArticleCacheStore.shared.cachedArticleDetail(articleId: articleId) {
             self.title = cachedDetail.title.isEmpty ? initialTitle : cachedDetail.title
             self.sentences = cachedDetail.sentences
+            scheduleSentenceAudioPreload()
         } else {
             self.title = initialTitle
         }
@@ -40,6 +42,7 @@ final class ArticleDetailViewModel: ObservableObject {
     
     deinit {
         audioTask?.cancel()
+        preloadTask?.cancel()
         Task { @MainActor in
             ArticleAudioManager.shared.stop()
         }
@@ -61,6 +64,7 @@ final class ArticleDetailViewModel: ObservableObject {
             title = detail.title
             sentences = detail.sentences
             ArticleCacheStore.shared.saveArticleDetail(detail, articleId: articleId)
+            scheduleSentenceAudioPreload()
         } catch {
             toastMessage = error.localizedDescription
         }
@@ -114,6 +118,7 @@ final class ArticleDetailViewModel: ObservableObject {
             ),
             articleId: articleId
         )
+        scheduleSentenceAudioPreload()
     }
 
     private var cachedNumericArticleId: Int {
@@ -179,6 +184,8 @@ final class ArticleDetailViewModel: ObservableObject {
     }
     
     private func playSequence(startingAt startIndex: Int) async {
+        var finishedAllSentences = true
+
         for index in startIndex..<sentences.count {
             if Task.isCancelled { return }
             let sentence = sentences[index]
@@ -195,9 +202,14 @@ final class ArticleDetailViewModel: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
+                finishedAllSentences = false
                 toastMessage = error.localizedDescription
                 break
             }
+        }
+
+        if finishedAllSentences {
+            completeReviewTaskIfNeeded()
         }
         stopContinuousPlayback(resetProgress: true)
         stopVoiceReading(resetPosition: true)
@@ -247,6 +259,41 @@ final class ArticleDetailViewModel: ObservableObject {
         }
         if resetProgress {
             continuousPlaybackStartIndex = 0
+        }
+    }
+
+    private func scheduleSentenceAudioPreload() {
+        let pendingSentences = sentences.compactMap { sentence -> (Int?, String)? in
+            let text = sentence.original.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return (sentence.sentenceId, text)
+        }
+        guard !pendingSentences.isEmpty else { return }
+
+        preloadTask?.cancel()
+        preloadTask = Task {
+            for (sentenceId, text) in pendingSentences {
+                if Task.isCancelled { return }
+                await ArticleAudioManager.shared.preload(
+                    sentenceId: sentenceId,
+                    text: text,
+                    type: .original,
+                    style: .focusedSentence
+                )
+            }
+        }
+    }
+
+    private func completeReviewTaskIfNeeded() {
+        Task {
+            do {
+                let response = try await ReviewAPI.shared.completeTask(articleId: articleId)
+                if response.completed {
+                    toastMessage = "复习任务已完成"
+                }
+            } catch {
+                // Avoid interrupting ordinary reading with task-sync failures.
+            }
         }
     }
 }

@@ -56,7 +56,8 @@ func main() {
 			appServices.articleSvc,
 			appServices.aiService,
 		),
-		Stats: handlers.NewStatsHandler(appServices.articleSvc),
+		Review: handlers.NewReviewHandler(appServices.articleSvc),
+		Stats:  handlers.NewStatsHandler(appServices.articleSvc),
 	}
 
 	api := r.Group("/api")
@@ -120,6 +121,9 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 	articleSvc := services.NewArticleService(db)
 	if err := articleSvc.EnsureWordExplanationCacheTable(context.Background()); err != nil {
 		logger.Warn("⚠️ 初始化单词解释缓存表失败: %v", err)
+	}
+	if err := articleSvc.EnsureReviewTaskTable(context.Background()); err != nil {
+		logger.Warn("⚠️ 初始化复习任务表失败: %v", err)
 	}
 
 	// DeepSeek 文本能力在未配置 API Key 时不可用。
