@@ -485,7 +485,7 @@ final class CameraService {
             self.currentInput = nil
         }
         
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
+        guard let device = preferredCaptureDevice(for: position) else {
             session.commitConfiguration()
             throw NSError(domain: "CameraService", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法找到摄像头"])
         }
@@ -535,7 +535,10 @@ final class CameraService {
         session.addInput(input)
         currentInput = input
         currentDevice = device
-        
+
+        // 配置微距：让多摄虚拟设备在近距离自动切换到超广角镜头
+        configureMacroIfAvailable(for: device)
+
         if session.outputs.isEmpty {
             guard session.canAddOutput(photoOutput) else {
                 session.commitConfiguration()
@@ -571,6 +574,58 @@ final class CameraService {
         
         if !session.isRunning {
             session.startRunning()
+        }
+    }
+
+    /// 选择拍摄设备。后置优先使用支持微距的多摄虚拟设备（三摄 / 双广角），
+    /// 系统会在近距离自动切换到超广角镜头实现微距对焦；无多摄时回退到普通广角。
+    private func preferredCaptureDevice(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        if position == .back {
+            let preferredTypes: [AVCaptureDevice.DeviceType] = [
+                .builtInTripleCamera,
+                .builtInDualWideCamera,
+                .builtInWideAngleCamera
+            ]
+            for type in preferredTypes {
+                if let device = AVCaptureDevice.default(type, for: .video, position: .back) {
+                    return device
+                }
+            }
+            return nil
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+    }
+
+    /// 为多摄虚拟设备开启自动微距，并将初始视野设置为标准广角。
+    ///
+    /// 多摄虚拟设备（如 `.builtInDualWideCamera` / `.builtInTripleCamera`）默认
+    /// `videoZoomFactor = 1.0` 对应超广角镜头。开启自动切换后，当镜头贴近书本、
+    /// 超出主广角最小对焦距离时，系统会自动切到超广角镜头对焦，即“微距”效果。
+    private func configureMacroIfAvailable(for device: AVCaptureDevice) {
+        guard device.isVirtualDevice else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+
+            if #available(iOS 16.0, *) {
+                // 不限制切换条件，允许系统按对焦距离自由切换镜头（含微距）
+                device.setPrimaryConstituentDeviceSwitchingBehavior(
+                    .auto,
+                    restrictedSwitchingBehaviorConditions: []
+                )
+            }
+
+            // 将初始变焦调到主广角视野，避免默认使用超广角的过宽画面
+            if let firstSwitchOver = device.virtualDeviceSwitchOverVideoZoomFactors.first {
+                let target = CGFloat(truncating: firstSwitchOver)
+                let clamped = min(
+                    max(target, device.minAvailableVideoZoomFactor),
+                    device.maxAvailableVideoZoomFactor
+                )
+                device.videoZoomFactor = clamped
+            }
+        } catch {
+            // 微距配置失败时忽略，继续使用默认相机配置
         }
     }
 }
