@@ -17,18 +17,29 @@ import (
 type ArticleHandler struct {
 	articleService *services.ArticleService
 	textAnalyzer   services.TextAnalyzer
+	imageExtractor services.ImageTextExtractor
 }
 
 // NewArticleHandler 创建文章处理器实例。
-func NewArticleHandler(articleService *services.ArticleService, textAnalyzer services.TextAnalyzer) *ArticleHandler {
+func NewArticleHandler(
+	articleService *services.ArticleService,
+	textAnalyzer services.TextAnalyzer,
+	imageExtractor services.ImageTextExtractor,
+) *ArticleHandler {
 	return &ArticleHandler{
 		articleService: articleService,
 		textAnalyzer:   textAnalyzer,
+		imageExtractor: imageExtractor,
 	}
 }
 
 type processArticleTextReq struct {
 	Text string `json:"text"`
+}
+
+type recognizeImageReq struct {
+	ImageBase64 string `json:"image_base64"`
+	MimeType    string `json:"mime_type"`
 }
 
 type updateArticleTitleReq struct {
@@ -239,6 +250,46 @@ func (h *ArticleHandler) UpdateArticleTitle(c *gin.Context) {
 	}
 
 	jsonOK(c, "更新成功", gin.H{"title": updatedTitle})
+}
+
+// RecognizeArticleImage 接收拍照/相册上传的图片（base64），
+// 调用视觉模型识别并整理为干净的英文正文文本后返回，供客户端校对。
+func (h *ArticleHandler) RecognizeArticleImage(c *gin.Context) {
+	if getUserID(c) == 0 {
+		return
+	}
+	if h.imageExtractor == nil {
+		jsonError(c, http.StatusServiceUnavailable, "图片识别服务未配置")
+		return
+	}
+
+	var req recognizeImageReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	image := strings.TrimSpace(req.ImageBase64)
+	if image == "" {
+		jsonError(c, http.StatusBadRequest, "图片内容不能为空")
+		return
+	}
+
+	logger.Info("🖼️ 收到图片识别请求 image=%d字节(base64) mime=%q", len(image), req.MimeType)
+	started := time.Now()
+	text, err := h.imageExtractor.ExtractArticleText(c.Request.Context(), image, req.MimeType)
+	if err != nil {
+		logger.Error("❌ 图片识别失败（总耗时 %s）: %v", time.Since(started), err)
+		jsonError(c, http.StatusInternalServerError, "图片识别失败: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		logger.Warn("⚠️ 图片识别返回空正文（总耗时 %s）", time.Since(started))
+		jsonError(c, http.StatusUnprocessableEntity, "未识别到正文内容，请重新拍摄")
+		return
+	}
+
+	logger.Info("✅ 图片识别成功（总耗时 %s），正文 %d 字符", time.Since(started), len(text))
+	jsonOK(c, "识别成功", gin.H{"text": text})
 }
 
 func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {

@@ -54,6 +54,22 @@ struct ArticleAPI {
         )
     }
     
+    /// 上传拍照图片，由服务端视觉模型识别并整理为干净的英文正文。
+    func recognizeArticleImage(_ item: PhotoUploadItem) async throws -> String {
+        let base64 = item.data.base64EncodedString()
+        let response: RecognizeImageResponse = try await networkManager.request(
+            endpoint: "articles/ocr",
+            method: "POST",
+            body: [
+                "image_base64": base64,
+                "mime_type": item.mimeType
+            ],
+            timeout: 120,
+            responseType: RecognizeImageResponse.self
+        )
+        return response.text
+    }
+
     func processArticleText(_ text: String) async throws -> ProcessArticleResponse {
         return try await networkManager.request(
             endpoint: "articles/process-text",

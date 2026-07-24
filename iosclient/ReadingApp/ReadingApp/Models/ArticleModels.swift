@@ -136,6 +136,10 @@ struct ProcessArticleResponse: Decodable {
     }
 }
 
+struct RecognizeImageResponse: Decodable {
+    let text: String
+}
+
 struct UpdateArticleTitleResponse: Decodable {
     let title: String
 }

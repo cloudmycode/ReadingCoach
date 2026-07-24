@@ -70,6 +70,7 @@ func (h *Handlers) APIRoutes() []APIGroup {
 				{http.MethodGet, "/:id", true, "获取文章详情", h.Article.GetArticleDetail},
 				{http.MethodDelete, "/:id", true, "删除文章", h.Article.DeleteArticle},
 				{http.MethodPost, "/:id/title", true, "修改文章标题", h.Article.UpdateArticleTitle},
+				{http.MethodPost, "/ocr", true, "拍照图片识别正文", h.Article.RecognizeArticleImage},
 				{http.MethodPost, "/process-text", true, "解析正文并生成文章", h.Article.ProcessArticleText},
 				{http.MethodPost, "/:id/sentences/:sentence_id", true, "修改句子并重新翻译", h.Article.UpdateSentence},
 				{http.MethodPost, "/:id/sentences/:sentence_id/explain-word", true, "解释句子中的单词", h.Article.ExplainSentenceWord},

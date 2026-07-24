@@ -59,7 +59,7 @@ struct ArticleTextDraftView: View {
         .fullScreenCover(isPresented: $isCameraPresented) {
             CameraCaptureView(
                 onSubmit: { uploadItem in
-                    try await TextRecognitionService.shared.recognizeArticleText(from: uploadItem)
+                    try await ArticleAPI.shared.recognizeArticleImage(uploadItem)
                 },
                 onSuccess: { recognizedText in
                     appendRecognizedText(recognizedText)
@@ -76,7 +76,7 @@ struct ArticleTextDraftView: View {
     
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("拍照后先在本机识别英文，再由你校对。")
+            Text("拍照后自动识别并整理英文正文，再由你校对。")
                 .font(.headline)
                 .foregroundColor(.primary)
             Text("你可以继续追加拍照内容，也可以直接编辑识别结果。确认无误后再提交到服务器进行拆句、翻译和音频生成。")

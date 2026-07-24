@@ -55,6 +55,7 @@ func main() {
 		Article: handlers.NewArticleHandler(
 			appServices.articleSvc,
 			appServices.aiService,
+			appServices.ocrService,
 		),
 		Review: handlers.NewReviewHandler(appServices.articleSvc),
 		Stats:  handlers.NewStatsHandler(appServices.articleSvc),
@@ -114,6 +115,7 @@ type appServices struct {
 	codeSvc    services.CodeService
 	articleSvc *services.ArticleService
 	aiService  *services.AIService
+	ocrService *services.OCRService
 }
 
 func initServices(cfg config.Config, db *sql.DB) *appServices {
@@ -139,10 +141,23 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 		logger.Info("✅ AI 服务初始化成功（DeepSeek 文本处理）")
 	}
 
+	// Qwen-VL 视觉 OCR 在未配置 API Key 时不可用。
+	ocrService := services.NewOCRService(
+		cfg.QwenVLAPIKey,
+		cfg.QwenVLAPIURL,
+		cfg.QwenVLModel,
+	)
+	if strings.TrimSpace(cfg.QwenVLAPIKey) == "" {
+		logger.Warn("⚠️ Qwen-VL 未配置，拍照图片识别不可用")
+	} else {
+		logger.Info("✅ 图片识别服务初始化成功（Qwen-VL OCR）")
+	}
+
 	return &appServices{
 		codeSvc:    codeSvc,
 		articleSvc: articleSvc,
 		aiService:  aiService,
+		ocrService: ocrService,
 	}
 }
 

@@ -28,6 +28,7 @@ final class NetworkManager {
         method: String = "GET",
         body: [String: Any]? = nil,
         headers: [String: String]? = nil,
+        timeout: TimeInterval? = nil,
         responseType: T.Type
     ) async throws -> T {
         // 正确构建 URL，处理查询参数
@@ -61,6 +62,9 @@ final class NetworkManager {
         
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let timeout = timeout {
+            request.timeoutInterval = timeout
+        }
         
         // 只在有请求体时设置 Content-Type
         if body != nil {

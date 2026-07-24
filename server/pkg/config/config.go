@@ -24,6 +24,11 @@ type Config struct {
 	DeepSeekAPIURL string
 	DeepSeekModel  string
 
+	// Qwen-VL（阿里 DashScope，OpenAI 兼容）用于拍照图片的文字识别（OCR）。
+	QwenVLAPIKey string
+	QwenVLAPIURL string
+	QwenVLModel  string
+
 	TTSVoice string
 }
 
@@ -73,6 +78,9 @@ func getDefaultConfig() Config {
 		DeepSeekAPIKey: "replace-with-deepseek-api-key",
 		DeepSeekAPIURL: "https://api.deepseek.com/v1/chat/completions",
 		DeepSeekModel:  "deepseek-chat",
+		QwenVLAPIKey:   "replace-with-dashscope-api-key",
+		QwenVLAPIURL:   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+		QwenVLModel:    "qwen-vl-ocr",
 		TTSVoice:       "en-US-JennyNeural",
 	}
 }

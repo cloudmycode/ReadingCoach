@@ -15,12 +15,13 @@ import Combine
 // MARK: - Constants
 
 private enum Constants {
-    static let jpegCompressionQuality: CGFloat = 0.9
+    static let jpegCompressionQuality: CGFloat = 0.85
+    /// 上传识别前的最长边像素上限。文档 OCR 用 ~2000px 已足够清晰，
+    /// 过高分辨率会显著拖慢云端识别甚至超时。
+    static let maxUploadDimension: CGFloat = 2000
     static let buttonSize: CGFloat = 60
     static let captureButtonSize: CGFloat = 80
     static let captureButtonInnerSize: CGFloat = 64
-    static let cornerHandleSize: CGFloat = 20
-    static let minCropSize: CGFloat = 0.05
     static let bottomButtonHeight: CGFloat = 100
 }
 
@@ -59,9 +60,6 @@ struct CameraCaptureView: View {
                 photo: $viewModel.photo,
                 isProcessing: viewModel.isProcessing,
                 onRetake: viewModel.retakePhoto,
-                onRotate: viewModel.rotatePhoto,
-                onCrop: viewModel.cropPhoto,
-                onRestore: viewModel.restorePhoto,
                 onSubmit: handleProcess
             )
         }
@@ -307,30 +305,6 @@ final class CameraViewModel: NSObject, ObservableObject {
         isShowingPreview = false
     }
     
-    func rotatePhoto() {
-        guard let rotatedImage = photo?.image.rotatedLeft() else { return }
-        photo?.image = rotatedImage
-        photo?.isEdited = true
-    }
-    
-    func restorePhoto() {
-        guard let originalImage = photo?.originalImage else { return }
-        photo?.image = originalImage
-        photo?.isEdited = false
-    }
-    
-    func cropPhoto(_ cropRect: CGRect) {
-        guard let cgImage = photo?.image.cgImage else { return }
-        let imageBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
-        let pixelRect = cropRect.integral.intersection(imageBounds)
-        guard pixelRect.width > 0,
-              pixelRect.height > 0,
-              let croppedImage = cgImage.cropping(to: pixelRect) else { return }
-
-        photo?.image = UIImage(cgImage: croppedImage, scale: 1, orientation: .up)
-        photo?.isEdited = true
-    }
-    
     func showPhotoPicker() {
         isShowingPhotoPicker = true
     }
@@ -412,16 +386,16 @@ final class CameraViewModel: NSObject, ObservableObject {
 
 struct CapturedPhoto {
     var image: UIImage
-    let originalImage: UIImage
-    var isEdited = false
     
     init(image: UIImage) {
         self.image = image
-        self.originalImage = image
     }
     
     var currentJpegData: Data? {
-        image.jpegData(compressionQuality: Constants.jpegCompressionQuality)
+        // 上传前降采样，避免超大分辨率照片拖慢云端 OCR / 触发超时。
+        image
+            .downscaled(maxDimension: Constants.maxUploadDimension)
+            .jpegData(compressionQuality: Constants.jpegCompressionQuality)
     }
 }
 
@@ -636,13 +610,7 @@ private struct PhotoPreviewView: View {
     @Binding var photo: CapturedPhoto?
     let isProcessing: Bool
     let onRetake: () -> Void
-    let onRotate: () -> Void
-    let onCrop: (CGRect) -> Void
-    let onRestore: () -> Void
     let onSubmit: () -> Void
-    
-    @State private var isCropping = false
-    @State private var normalizedCropRect = CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
     
     var body: some View {
         NavigationStack {
@@ -665,15 +633,6 @@ private struct PhotoPreviewView: View {
                             .resizable()
                             .frame(width: displaySize.width, height: displaySize.height)
                             .position(center)
-
-                        if isCropping {
-                            CropOverlay(
-                                normalizedRect: $normalizedCropRect,
-                                viewSize: displaySize
-                            )
-                            .frame(width: displaySize.width, height: displaySize.height)
-                            .position(center)
-                        }
                     } else {
                         Text("暂无图片")
                             .foregroundColor(.white)
@@ -685,23 +644,7 @@ private struct PhotoPreviewView: View {
                     Spacer()
                     
                     if photo != nil {
-                        if isCropping {
-                            HStack(spacing: 16) {
-                                Button("取消") {
-                                    isCropping = false
-                                    resetCropRect()
-                                }
-                                .buttonStyle(CropActionButtonStyle(color: .gray))
-
-                                Button("完成") {
-                                    applyCrop()
-                                }
-                                .buttonStyle(CropActionButtonStyle(color: .green))
-                            }
-                            .padding(16)
-                            .background(Color.black.opacity(0.85))
-                        } else {
-                            previewActions
+                        previewActions
                             .padding(.horizontal, 16)
                             .padding(.vertical, 20)
                             .background(
@@ -711,7 +654,6 @@ private struct PhotoPreviewView: View {
                                     endPoint: .bottom
                                 )
                             )
-                        }
                     }
                 }
 
@@ -730,12 +672,8 @@ private struct PhotoPreviewView: View {
     }
 
     private var previewActions: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 40) {
             previewAction("重拍", systemImage: "camera.fill", action: onRetake)
-            previewAction("左转", systemImage: "rotate.left", action: onRotate)
-            previewAction("裁剪", systemImage: "crop") {
-                isCropping = true
-            }
             previewAction("识别文字", systemImage: "text.viewfinder", color: .green, action: onSubmit)
                 .disabled(isProcessing)
         }
@@ -770,253 +708,6 @@ private struct PhotoPreviewView: View {
         return CGSize(width: source.width * scale, height: source.height * scale)
     }
 
-    private func applyCrop() {
-        guard let image = photo?.image else { return }
-        let size = pixelSize(of: image)
-        onCrop(CGRect(
-            x: normalizedCropRect.minX * size.width,
-            y: normalizedCropRect.minY * size.height,
-            width: normalizedCropRect.width * size.width,
-            height: normalizedCropRect.height * size.height
-        ))
-        isCropping = false
-        resetCropRect()
-    }
-
-    private func resetCropRect() {
-        normalizedCropRect = CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8)
-    }
-}
-
-private struct CropActionButtonStyle: ButtonStyle {
-    let color: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(.white)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            .background(color.opacity(configuration.isPressed ? 0.65 : 0.9))
-            .cornerRadius(12)
-    }
-}
-
-// MARK: - Crop Overlay
-
-private struct CropOverlay: View {
-    @Binding var normalizedRect: CGRect
-    let viewSize: CGSize
-    
-    @State private var dragStart: CGPoint = .zero
-    @State private var dragStartRect: CGRect = .zero
-    @State private var isDragging = false
-    @State private var dragType: DragType = .none
-    
-    enum DragType {
-        case none
-        case move
-        case resizeTopLeft
-        case resizeTopRight
-        case resizeBottomLeft
-        case resizeBottomRight
-    }
-    
-    private let cornerHandleSize = Constants.cornerHandleSize
-    
-    private var cropFrame: CGRect {
-        CGRect(
-            x: normalizedRect.origin.x * viewSize.width,
-            y: normalizedRect.origin.y * viewSize.height,
-            width: normalizedRect.width * viewSize.width,
-            height: normalizedRect.height * viewSize.height
-        )
-    }
-    
-    private var topLeft: CGPoint {
-        CGPoint(x: cropFrame.minX, y: cropFrame.minY)
-    }
-    
-    private var topRight: CGPoint {
-        CGPoint(x: cropFrame.maxX, y: cropFrame.minY)
-    }
-    
-    private var bottomLeft: CGPoint {
-        CGPoint(x: cropFrame.minX, y: cropFrame.maxY)
-    }
-    
-    private var bottomRight: CGPoint {
-        CGPoint(x: cropFrame.maxX, y: cropFrame.maxY)
-    }
-    
-    // 检测点击位置是否在某个角落附近
-    private func detectDragType(at location: CGPoint) -> DragType {
-        let handleRadius: CGFloat = cornerHandleSize / 2
-        
-        if distance(location, topLeft) < handleRadius {
-            return .resizeTopLeft
-        } else if distance(location, topRight) < handleRadius {
-            return .resizeTopRight
-        } else if distance(location, bottomLeft) < handleRadius {
-            return .resizeBottomLeft
-        } else if distance(location, bottomRight) < handleRadius {
-            return .resizeBottomRight
-        } else if cropFrame.contains(location) {
-            return .move
-        }
-        return .none
-    }
-    
-    private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
-        sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2))
-    }
-    
-    private func resizeFromTopLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
-        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
-        let newWidth = startRect.maxX - newX
-        let newHeight = startRect.maxY - newY
-        return CGRect(
-            x: newX,
-            y: newY,
-            width: max(Constants.minCropSize, min(newWidth, 1 - newX)),
-            height: max(Constants.minCropSize, min(newHeight, 1 - newY))
-        )
-    }
-    
-    private func resizeFromTopRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
-        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
-        let newHeight = startRect.maxY - newY
-        return CGRect(
-            x: startRect.origin.x,
-            y: newY,
-            width: newWidth,
-            height: max(Constants.minCropSize, min(newHeight, 1 - newY))
-        )
-    }
-    
-    private func resizeFromBottomLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
-        let newWidth = startRect.maxX - newX
-        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
-        return CGRect(
-            x: newX,
-            y: startRect.origin.y,
-            width: max(Constants.minCropSize, min(newWidth, 1 - newX)),
-            height: newHeight
-        )
-    }
-    
-    private func resizeFromBottomRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
-        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
-        return CGRect(
-            x: startRect.origin.x,
-            y: startRect.origin.y,
-            width: newWidth,
-            height: newHeight
-        )
-    }
-    
-    var body: some View {
-        ZStack {
-            // 半透明遮罩（裁剪区域外）
-            Color.black.opacity(0.6)
-                .mask(
-                    Rectangle()
-                        .fill(Color.white)
-                        .blendMode(.destinationOut)
-                        .frame(width: cropFrame.width, height: cropFrame.height)
-                        .position(x: cropFrame.midX, y: cropFrame.midY)
-                )
-            
-            // 裁剪框边框
-            Rectangle()
-                .stroke(Color.white, lineWidth: 2)
-                .frame(width: cropFrame.width, height: cropFrame.height)
-                .position(x: cropFrame.midX, y: cropFrame.midY)
-            
-            // 四个角落的控制点
-            CornerHandle(position: topLeft)
-            CornerHandle(position: topRight)
-            CornerHandle(position: bottomLeft)
-            CornerHandle(position: bottomRight)
-        }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if !isDragging {
-                        isDragging = true
-                        dragStart = value.startLocation
-                        dragStartRect = normalizedRect
-                        dragType = detectDragType(at: value.startLocation)
-                    }
-                    
-                    // 计算移动距离（归一化，相对于视图尺寸）
-                    let deltaX = value.translation.width / viewSize.width
-                    let deltaY = value.translation.height / viewSize.height
-                    
-                    switch dragType {
-                    case .move:
-                        // 移动整个裁剪框
-                        let newX = max(0, min(1 - dragStartRect.width, dragStartRect.origin.x + deltaX))
-                        let newY = max(0, min(1 - dragStartRect.height, dragStartRect.origin.y + deltaY))
-                        normalizedRect.origin.x = newX
-                        normalizedRect.origin.y = newY
-                        normalizedRect.size = dragStartRect.size
-                        
-                    case .resizeTopLeft:
-                        normalizedRect = resizeFromTopLeft(
-                            startRect: dragStartRect,
-                            deltaX: deltaX,
-                            deltaY: deltaY
-                        )
-                    case .resizeTopRight:
-                        normalizedRect = resizeFromTopRight(
-                            startRect: dragStartRect,
-                            deltaX: deltaX,
-                            deltaY: deltaY
-                        )
-                    case .resizeBottomLeft:
-                        normalizedRect = resizeFromBottomLeft(
-                            startRect: dragStartRect,
-                            deltaX: deltaX,
-                            deltaY: deltaY
-                        )
-                    case .resizeBottomRight:
-                        normalizedRect = resizeFromBottomRight(
-                            startRect: dragStartRect,
-                            deltaX: deltaX,
-                            deltaY: deltaY
-                        )
-                        
-                    case .none:
-                        break
-                    }
-                }
-                .onEnded { _ in
-                    isDragging = false
-                    dragType = .none
-                }
-        )
-    }
-}
-
-// MARK: - Corner Handle
-
-private struct CornerHandle: View {
-    let position: CGPoint
-    
-    var body: some View {
-        Circle()
-            .fill(Color.white)
-            .frame(width: 20, height: 20)
-            .overlay(
-                Circle()
-                    .stroke(Color.blue, lineWidth: 1.5)
-            )
-            .position(position)
-    }
 }
 
 // MARK: - AVCapturePhotoCaptureDelegate
