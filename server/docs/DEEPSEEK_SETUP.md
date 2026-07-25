@@ -11,7 +11,7 @@
 
 当前服务端默认从 `config.json` 读取配置。
 
-1. 复制 `server/config.example.json` 为 `server/config.json`
+1. 复制 `server/config.docker.example.json` 为 `server/config.json`
 2. 填入以下字段：
 
 ```json

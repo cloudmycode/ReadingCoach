@@ -59,7 +59,7 @@ server/
 ├── scripts/
 ├── sql/
 ├── web/
-├── config.example.json
+├── config.docker.example.json
 └── go.mod
 ```
 

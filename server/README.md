@@ -8,11 +8,11 @@ server/
 ├── internal/       # handlers / services / database / logger
 ├── pkg/            # 配置与通用工具
 ├── db/             # 数据库结构与数据库辅助脚本
-├── scripts/        # 本地启动与部署脚本
+├── scripts/        # Docker 构建/部署脚本（docker-ship.sh）与测试脚本
 ├── deploy/         # nginx 等部署配置
-├── docs/           # 接口与部署文档
+├── docs/           # 接口与配置文档
 ├── attachments/    # 本地开发时的静态附件目录
-└── release/        # 生产发布产物（deploy.sh 生成）
+└── release/        # 运行产物目录（可忽略）
 ```
 
 ## Notes
