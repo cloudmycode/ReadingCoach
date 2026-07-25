@@ -204,18 +204,52 @@ mysqldump -u root -p --databases db_words --no-create-db > dump.sql
 
 ## 四、构建并启动
 
+有两种方式，任选其一。
+
+### 方式一（推荐，本项目采用）：本机构建镜像 → 传到服务器加载运行
+
+服务器不安装 Go / 不编译，只负责运行。构建在本机（Mac）完成后打包传过去。
+
+> ⚠️ Mac 多为 Apple Silicon(ARM64)，服务器是 amd64，脚本内部用
+> `docker buildx --platform linux/amd64` 交叉编译，避免 `exec format error`。
+
+前置条件：
+- 服务器已完成第一节的 Docker 安装与**镜像加速器**配置（用于拉取 `mysql:8.0`）
+- 服务器 `server` 目录下已准备好 `.env`、`config.json`（第二节），
+  以及仓库自带的 `docker-compose.yml`、`db/schema.sql`
+- 本机已装 Docker（含 buildx）并能 SSH 到服务器
+
+在**本机**项目的 `server/` 目录执行：
+
+```bash
+./scripts/docker-ship.sh
+```
+
+脚本会依次：`buildx` 构建 amd64 镜像 → `docker save | gzip` 打包 → `scp` 传到服务器 →
+服务器 `docker load` → `docker compose up -d --no-build` 启动。
+
+可用环境变量覆盖默认值（默认目标 `root@39.105.229.91`、目录 `/home/website/readingcoach.jingjiangke.com/server`）：
+
+```bash
+REMOTE_HOST=root@你的IP \
+REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/server \
+SSH_PORT=22 \
+./scripts/docker-ship.sh
+```
+
+> 之后每次更新代码，本机重新跑一遍 `./scripts/docker-ship.sh` 即可滚动更新后端。
+> MySQL 容器不受影响、数据保留。
+
+### 方式二（备选）：直接在服务器上构建
+
+在**服务器** `server/` 目录执行：
+
 ```bash
 docker compose up -d --build
 ```
 
 首次会编译 Go 镜像 + 拉取 MySQL 镜像 + 导入数据，耗时数分钟属正常。
-
-国内构建慢时：
-
-```bash
-docker compose build --build-arg GOPROXY=https://goproxy.cn,direct
-docker compose up -d
-```
+此方式要求服务器能通过 `goproxy.cn` 拉取 Go 依赖（`.env` 里已设 `GOPROXY`）。
 
 ---
 
@@ -263,9 +297,12 @@ docker compose start
 # 重启后端（不影响数据库）
 docker compose restart server
 
-# 更新代码后重新构建并滚动更新
-git pull
-docker compose up -d --build
+# 更新后端（方式一）：在【本机】重新构建并推送，服务器自动滚动更新
+#   （在本机 server 目录执行）
+./scripts/docker-ship.sh
+
+# 更新后端（方式二）：在【服务器】上直接拉代码重建
+git pull && docker compose up -d --build
 
 # 停止并删除容器（数据卷保留）
 docker compose down
