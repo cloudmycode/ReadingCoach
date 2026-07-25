@@ -7,6 +7,7 @@ xcuserdata/
 
 # Server runtime files
 server/config.json
+server/.env
 server/bin/
 server/logs/
 server/release/
@@ -17,3 +18,7 @@ server/attachments/
 # Python cache
 __pycache__/
 *.pyc
+
+# 测试用样例图片
+server/scripts/*.jpg
+server/scripts/*.png

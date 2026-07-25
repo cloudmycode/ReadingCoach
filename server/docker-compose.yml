@@ -1,0 +1,60 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: readingcoach-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 仅在数据卷为空（首次启动）时自动导入结构+数据
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      # 宿主端口:容器端口，默认只在需要外部直连 MySQL 时暴露
+      - "${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: readingcoach-server:latest
+    container_name: readingcoach-server
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      # 配置文件（含数据库密码与各 AI Key），容器内固定读取 /app/config.json
+      - ./config.json:/app/config.json:ro
+      - server-attachments:/app/attachments
+      - server-logs:/app/logs
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mysql-data:
+  server-attachments:
+  server-logs:

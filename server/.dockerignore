@@ -1,0 +1,21 @@
+# 只保留编译所需的 Go 源码，缩小构建上下文
+.git/
+release/
+bin/
+logs/
+attachments/
+
+# 运行期/密钥文件，绝不进镜像
+config.json
+.env
+
+# 数据库 dump 通过 docker-compose 挂载给 MySQL 容器，无需进镜像（体积大）
+db/
+
+# 测试脚本与样例图片
+scripts/*.jpg
+scripts/*.png
+scripts/__pycache__/
+
+# 文档
+*.md

@@ -1,0 +1,18 @@
+{
+  "HTTPAddr": ":8080",
+  "MySQLHost": "mysql",
+  "MySQLPort": "3306",
+  "MySQLUser": "readingcoach",
+  "MySQLPass": "change-this-password",
+  "MySQLDB": "ReadingCoach",
+  "JWTSecret": "change-this-to-a-long-random-secret",
+  "LogsDir": "./logs",
+  "AttachmentsDir": "./attachments",
+  "DeepSeekAPIKey": "replace-with-deepseek-api-key",
+  "DeepSeekAPIURL": "https://api.deepseek.com/v1/chat/completions",
+  "DeepSeekModel": "deepseek-chat",
+  "QwenVLAPIKey": "replace-with-dashscope-api-key",
+  "QwenVLAPIURL": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+  "QwenVLModel": "qwen-vl-ocr",
+  "TTSVoice": "en-US-JennyNeural"
+}
