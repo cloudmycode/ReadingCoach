@@ -89,19 +89,19 @@ docker pull hello-world   # 验证能拉镜像
 
 ### 2. 获取代码
 
-本项目部署目录约定为 `/home/website/readingcoach.jingjiangke.com`。
+本项目部署目录约定为 `/home/website/readingcoach.jingjiangke.com/ReadingCoach`。
 把仓库克隆到该目录（server 端代码位于仓库的 `server/` 子目录）：
 
 ```bash
-mkdir -p /home/website
-git clone https://github.com/cloudmycode/ReadingCoach.git /home/website/readingcoach.jingjiangke.com
-cd /home/website/readingcoach.jingjiangke.com/server
+mkdir -p /home/website/readingcoach.jingjiangke.com
+git clone https://github.com/cloudmycode/ReadingCoach.git /home/website/readingcoach.jingjiangke.com/ReadingCoach
+cd /home/website/readingcoach.jingjiangke.com/ReadingCoach/server
 ```
 
-> 后续所有命令都在 `/home/website/readingcoach.jingjiangke.com/server` 目录下执行。
+> 后续所有命令都在 `/home/website/readingcoach.jingjiangke.com/ReadingCoach/server` 目录下执行。
 > 该目录里有 `Dockerfile`、`docker-compose.yml`、`db/schema.sql` 等部署所需文件。
 >
-> 若代码已经在服务器上，直接 `cd /home/website/readingcoach.jingjiangke.com/server` 即可；
+> 若代码已经在服务器上，直接 `cd /home/website/readingcoach.jingjiangke.com/ReadingCoach/server` 即可；
 > 更新代码用 `git pull`。
 
 ---
@@ -228,11 +228,11 @@ mysqldump -u root -p --databases db_words --no-create-db > dump.sql
 脚本会依次：`buildx` 构建 amd64 镜像 → `docker save | gzip` 打包 → `scp` 传到服务器 →
 服务器 `docker load` → `docker compose up -d --no-build` 启动。
 
-可用环境变量覆盖默认值（默认目标 `root@39.105.229.91`、目录 `/home/website/readingcoach.jingjiangke.com/server`）：
+可用环境变量覆盖默认值（默认目标 `root@39.105.229.91`、目录 `/home/website/readingcoach.jingjiangke.com/ReadingCoach/server`）：
 
 ```bash
 REMOTE_HOST=root@你的IP \
-REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/server \
+REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/ReadingCoach/server \
 SSH_PORT=22 \
 ./scripts/docker-ship.sh
 ```

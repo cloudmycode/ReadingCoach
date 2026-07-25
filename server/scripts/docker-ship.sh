@@ -9,7 +9,7 @@
 # 可用环境变量覆盖默认值：
 #   REMOTE_HOST   远程 SSH 目标，默认 root@39.105.229.91
 #   REMOTE_DIR    服务器部署目录（含 docker-compose.yml），
-#                 默认 /home/website/readingcoach.jingjiangke.com/server
+#                 默认 /home/website/readingcoach.jingjiangke.com/ReadingCoach/server
 #   SSH_PORT      SSH 端口，默认 22
 #   IMAGE         镜像名:标签，默认 readingcoach-server:latest
 #
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-root@39.105.229.91}"
-REMOTE_DIR="${REMOTE_DIR:-/home/website/readingcoach.jingjiangke.com/server}"
+REMOTE_DIR="${REMOTE_DIR:-/home/website/readingcoach.jingjiangke.com/ReadingCoach/server}"
 SSH_PORT="${SSH_PORT:-22}"
 IMAGE="${IMAGE:-readingcoach-server:latest}"
 PLATFORM="linux/amd64"
