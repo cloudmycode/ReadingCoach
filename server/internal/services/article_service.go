@@ -413,6 +413,22 @@ type CachedWordExplanation struct {
 	Tip            string
 }
 
+// UserWordBookEntry 用户生词本条目（按用户归属，独立于 AI 释义缓存）。
+type UserWordBookEntry struct {
+	EntryID             int64
+	UserID              int
+	ArticleID           int64
+	SentenceID          int64
+	NormalizedWord      string
+	Word                string
+	SentenceOriginal    string
+	SentenceTranslation string
+	PartOfSpeech        string
+	Meaning             string
+	Tip                 string
+	LookedUpAt          time.Time
+}
+
 // GetArticleSentencesForAudio 根据文章ID获取所有句子信息（用于生成音频）
 func (s *ArticleService) GetSentenceStudyContext(ctx context.Context, articleID, sentenceID int64, userID int) (*SentenceStudyContext, error) {
 	if err := s.validateService(); err != nil {
@@ -487,6 +503,161 @@ func (s *ArticleService) EnsureWordExplanationCacheTable(ctx context.Context) er
 func (s *ArticleService) NormalizeWord(word string) string {
 	trimmed := strings.TrimSpace(strings.ToLower(word))
 	return strings.Trim(trimmed, " \t\r\n.,!?;:\"'()[]{}<>")
+}
+
+func (s *ArticleService) EnsureUserWordBookTable(ctx context.Context) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS user_word_book (
+			entry_id BIGINT NOT NULL AUTO_INCREMENT,
+			user_id INT NOT NULL,
+			article_id BIGINT NOT NULL,
+			sentence_id BIGINT NOT NULL,
+			normalized_word VARCHAR(128) NOT NULL,
+			word VARCHAR(128) NOT NULL DEFAULT '',
+			sentence_original TEXT NOT NULL,
+			sentence_translation TEXT NOT NULL,
+			part_of_speech VARCHAR(32) NOT NULL DEFAULT '',
+			meaning TEXT NOT NULL,
+			tip TEXT NOT NULL,
+			looked_up_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NULL DEFAULT NULL,
+			PRIMARY KEY (entry_id),
+			UNIQUE KEY idx_user_sentence_word (user_id, article_id, sentence_id, normalized_word),
+			KEY idx_user_looked_up (user_id, looked_up_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`)
+	if err != nil {
+		return fmt.Errorf("ensure user word book table: %w", err)
+	}
+	return nil
+}
+
+func (s *ArticleService) UpsertUserWordBookEntry(ctx context.Context, entry UserWordBookEntry) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	if entry.UserID <= 0 || entry.ArticleID <= 0 || entry.SentenceID <= 0 {
+		return fmt.Errorf("invalid user/article/sentence id")
+	}
+	normalized := s.NormalizeWord(entry.Word)
+	if normalized == "" {
+		normalized = s.NormalizeWord(entry.NormalizedWord)
+	}
+	if normalized == "" {
+		return fmt.Errorf("word is empty")
+	}
+	word := strings.TrimSpace(entry.Word)
+	if word == "" {
+		word = normalized
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO user_word_book (
+			user_id, article_id, sentence_id, normalized_word, word,
+			sentence_original, sentence_translation,
+			part_of_speech, meaning, tip, looked_up_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+		ON DUPLICATE KEY UPDATE
+			word = VALUES(word),
+			sentence_original = VALUES(sentence_original),
+			sentence_translation = VALUES(sentence_translation),
+			part_of_speech = VALUES(part_of_speech),
+			meaning = VALUES(meaning),
+			tip = VALUES(tip),
+			looked_up_at = NOW(),
+			updated_at = NOW()
+	`,
+		entry.UserID,
+		entry.ArticleID,
+		entry.SentenceID,
+		normalized,
+		word,
+		strings.TrimSpace(entry.SentenceOriginal),
+		strings.TrimSpace(entry.SentenceTranslation),
+		strings.TrimSpace(entry.PartOfSpeech),
+		strings.TrimSpace(entry.Meaning),
+		strings.TrimSpace(entry.Tip),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert user word book: %w", err)
+	}
+	return nil
+}
+
+func (s *ArticleService) DeleteUserWordBookEntry(ctx context.Context, userID int, entryID int64) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	if userID <= 0 || entryID <= 0 {
+		return fmt.Errorf("invalid user id or entry id")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM user_word_book
+		WHERE user_id = ? AND entry_id = ?
+	`, userID, entryID)
+	if err != nil {
+		return fmt.Errorf("delete user word book entry: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete user word book rows affected: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("word book entry not found")
+	}
+	return nil
+}
+
+func (s *ArticleService) ListUserWordBook(ctx context.Context, userID int) ([]UserWordBookEntry, error) {
+	if err := s.validateService(); err != nil {
+		return nil, err
+	}
+	if userID <= 0 {
+		return nil, fmt.Errorf("invalid user id")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT entry_id, user_id, article_id, sentence_id, normalized_word, word,
+		       sentence_original, sentence_translation, part_of_speech, meaning, tip, looked_up_at
+		FROM user_word_book
+		WHERE user_id = ?
+		ORDER BY looked_up_at DESC, entry_id DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user word book: %w", err)
+	}
+	defer rows.Close()
+
+	entries := make([]UserWordBookEntry, 0)
+	for rows.Next() {
+		var item UserWordBookEntry
+		if err := rows.Scan(
+			&item.EntryID,
+			&item.UserID,
+			&item.ArticleID,
+			&item.SentenceID,
+			&item.NormalizedWord,
+			&item.Word,
+			&item.SentenceOriginal,
+			&item.SentenceTranslation,
+			&item.PartOfSpeech,
+			&item.Meaning,
+			&item.Tip,
+			&item.LookedUpAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user word book: %w", err)
+		}
+		entries = append(entries, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user word book: %w", err)
+	}
+	return entries, nil
 }
 
 func (s *ArticleService) GetCachedWordExplanation(ctx context.Context, sentenceID int64, word string) (*CachedWordExplanation, error) {

@@ -71,8 +71,9 @@ final class ArticleDetailViewModel: ObservableObject {
     }
     
     func explainWord(sentenceId: Int, word: String) async throws -> SentenceWordExplanationResponse {
+        let response: SentenceWordExplanationResponse
         if let cached = WordExplanationCacheStore.shared.cachedExplanation(sentenceId: sentenceId, word: word) {
-            return SentenceWordExplanationResponse(
+            response = SentenceWordExplanationResponse(
                 word: cached.word.isEmpty ? word : cached.word,
                 partOfSpeech: cached.partOfSpeech,
                 meaning: cached.meaning,
@@ -80,16 +81,19 @@ final class ArticleDetailViewModel: ObservableObject {
                 sentenceId: sentenceId,
                 articleId: articleId
             )
+        } else {
+            response = try await ArticleAPI.shared.explainWord(articleId: articleId, sentenceId: sentenceId, word: word)
+            WordExplanationCacheStore.shared.save(
+                sentenceId: sentenceId,
+                word: response.word.isEmpty ? word : response.word,
+                partOfSpeech: response.partOfSpeech,
+                meaning: response.meaning,
+                tip: response.tip
+            )
         }
 
-        let response = try await ArticleAPI.shared.explainWord(articleId: articleId, sentenceId: sentenceId, word: word)
-        WordExplanationCacheStore.shared.save(
-            sentenceId: sentenceId,
-            word: response.word.isEmpty ? word : response.word,
-            partOfSpeech: response.partOfSpeech,
-            meaning: response.meaning,
-            tip: response.tip
-        )
+        // 生词本由服务端在 explain-word 时写入 user_word_book。
+        NotificationCenter.default.post(name: .wordBookDidChange, object: nil)
         return response
     }
 

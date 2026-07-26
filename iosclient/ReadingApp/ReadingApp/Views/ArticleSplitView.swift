@@ -3,11 +3,13 @@ import SwiftUI
 private enum SplitSidebarTab: String {
     case list
     case tasks
+    case wordBook
 }
 
 struct ArticleSplitView: View {
     @StateObject private var viewModel = ArticleListViewModel()
     @StateObject private var reviewTasksViewModel = ReviewTasksViewModel()
+    @StateObject private var wordBookViewModel = WordBookViewModel()
     @State private var selectedArticleId: String?
     @State private var isSidebarCollapsed = false
     @State private var isDraftPresented = false
@@ -42,6 +44,11 @@ struct ArticleSplitView: View {
         .onReceive(NotificationCenter.default.publisher(for: .reviewTasksDidChange)) { _ in
             Task {
                 await reviewTasksViewModel.loadTasks()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .wordBookDidChange)) { _ in
+            Task {
+                await wordBookViewModel.refreshEntries()
             }
         }
         .animation(.easeInOut(duration: 0.22), value: isSidebarCollapsed)
@@ -96,7 +103,7 @@ struct ArticleSplitView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                Text("Library")
+                Text(selectedSidebarTab == .wordBook ? "单词本" : "Library")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
@@ -114,23 +121,25 @@ struct ArticleSplitView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    isDraftPresented = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
-                        .frame(width: 38, height: 38)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                if selectedSidebarTab != .wordBook {
+                    Button {
+                        isDraftPresented = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                            .frame(width: 38, height: 38)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
             .padding(.bottom, 16)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 sidebarTabButton(title: "列表", isActive: selectedSidebarTab == .list) {
                     selectedSidebarTab = .list
                 }
@@ -138,6 +147,13 @@ struct ArticleSplitView: View {
                     selectedSidebarTab = .tasks
                     Task {
                         await reviewTasksViewModel.loadTasks()
+                    }
+                }
+                sidebarTabButton(title: "单词本", isActive: selectedSidebarTab == .wordBook) {
+                    selectedSidebarTab = .wordBook
+                    wordBookViewModel.setFilterArticleId(selectedArticleId)
+                    Task {
+                        await wordBookViewModel.refreshEntries()
                     }
                 }
             }
@@ -157,52 +173,8 @@ struct ArticleSplitView: View {
                         }
                     )
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(groupedArticles) { group in
-                                VStack(spacing: 0) {
-                                    HStack {
-                                        Text(group.title)
-                                            .font(.system(size: 12, weight: .bold))
-                                            .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
-                                            .tracking(1.0)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 10)
-                                    .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-
-                                    ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
-                                        HStack(spacing: 0) {
-                                            Button {
-                                                selectedArticleId = article.id
-                                            } label: {
-                                                SplitArticleRow(
-                                                    article: article,
-                                                    stripeColor: stripeColor(for: index),
-                                                    isSelected: selectedArticleId == article.id
-                                                )
-                                            }
-                                            .buttonStyle(.plain)
-
-                                            ArticleActionsMenu(
-                                                article: article,
-                                                isDisabled: viewModel.isMutatingArticle,
-                                                isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
-                                                onEdit: { viewModel.requestTitleEdit(article: article) },
-                                                onDelete: { viewModel.requestDelete(article: article) }
-                                            )
-                                        }
-                                        .background(selectedArticleId == article.id ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.bottom, 24)
-                    }
-                    .refreshable {
-                        await viewModel.refreshArticles()
-                    }
+                    // 列表 / 单词本：左侧都是文章标题目录
+                    articleDirectoryList(showsActions: selectedSidebarTab == .list)
                 }
             }
             .overlay(alignment: .bottom) {
@@ -220,7 +192,34 @@ struct ArticleSplitView: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let selectedArticle {
+        if selectedSidebarTab == .wordBook {
+            ZStack(alignment: .topLeading) {
+                if let selectedArticle {
+                    WordBookView(
+                        viewModel: wordBookViewModel,
+                        articleId: selectedArticle.id,
+                        articleTitle: selectedArticle.title,
+                        showsOpenArticleButton: false,
+                        onOpenArticle: { articleId in
+                            selectedArticleId = articleId
+                            selectedSidebarTab = .list
+                        }
+                    )
+                    .id("wordbook-\(selectedArticle.id)")
+                    .background(Color.white)
+                } else {
+                    wordBookEmptyDetail
+                }
+
+                if isSidebarCollapsed {
+                    expandButton
+                        .padding(.leading, 22)
+                        .padding(.top, 18)
+                } else {
+                    collapseButtonOverlay
+                }
+            }
+        } else if let selectedArticle {
             ZStack(alignment: .topLeading) {
                 ArticleDetailView(
                     articleId: selectedArticle.id,
@@ -257,6 +256,76 @@ struct ArticleSplitView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
+        }
+    }
+
+    private var wordBookEmptyDetail: some View {
+        VStack(spacing: 14) {
+            Text("选择一篇文章")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+            Text("在左侧点选文章标题，右侧会显示该篇文章的生词。")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
+    }
+
+    private func articleDirectoryList(showsActions: Bool) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(groupedArticles) { group in
+                    VStack(spacing: 0) {
+                        HStack {
+                            Text(group.title)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                                .tracking(1.0)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+
+                        ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
+                            HStack(spacing: 0) {
+                                Button {
+                                    selectedArticleId = article.id
+                                    if selectedSidebarTab == .wordBook {
+                                        wordBookViewModel.setFilterArticleId(article.id)
+                                    }
+                                } label: {
+                                    SplitArticleRow(
+                                        article: article,
+                                        stripeColor: stripeColor(for: index),
+                                        isSelected: selectedArticleId == article.id
+                                    )
+                                }
+                                .buttonStyle(.plain)
+
+                                if showsActions {
+                                    ArticleActionsMenu(
+                                        article: article,
+                                        isDisabled: viewModel.isMutatingArticle,
+                                        isWorking: viewModel.deletingArticleId == article.id || viewModel.updatingTitleArticleId == article.id,
+                                        onEdit: { viewModel.requestTitleEdit(article: article) },
+                                        onDelete: { viewModel.requestDelete(article: article) }
+                                    )
+                                }
+                            }
+                            .background(selectedArticleId == article.id ? Color(red: 0.95, green: 0.98, blue: 1.0) : Color.white)
+                        }
+                    }
+                }
+            }
+            .padding(.bottom, 24)
+        }
+        .refreshable {
+            await viewModel.refreshArticles()
+            if selectedSidebarTab == .wordBook {
+                await wordBookViewModel.refreshEntries()
+            }
         }
     }
 
@@ -352,7 +421,7 @@ struct ArticleSplitView: View {
     private func sidebarTabButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(isActive ? .white : Color(red: 0.4, green: 0.48, blue: 0.62))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)

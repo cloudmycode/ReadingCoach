@@ -207,6 +207,40 @@ struct ReviewTasksResponse: Codable {
     let status: String
 }
 
+struct WordBookListResponse: Codable {
+    let items: [WordBookAPIItem]
+}
+
+struct WordBookAPIItem: Codable, Identifiable, Hashable {
+    let entryId: Int64
+    let articleId: String
+    let sentenceId: Int
+    let word: String
+    let normalizedWord: String
+    let sentenceOriginal: String
+    let sentenceTranslation: String
+    let partOfSpeech: String
+    let meaning: String
+    let tip: String
+    let lookedUpAt: String
+
+    var id: String { "\(entryId)" }
+
+    enum CodingKeys: String, CodingKey {
+        case entryId = "entry_id"
+        case articleId = "article_id"
+        case sentenceId = "sentence_id"
+        case word
+        case normalizedWord = "normalized_word"
+        case sentenceOriginal = "sentence_original"
+        case sentenceTranslation = "sentence_translation"
+        case partOfSpeech = "part_of_speech"
+        case meaning
+        case tip
+        case lookedUpAt = "looked_up_at"
+    }
+}
+
 struct ReviewTaskCompletionResponse: Codable {
     let completed: Bool
     let taskId: Int64?

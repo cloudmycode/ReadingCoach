@@ -368,62 +368,77 @@ func (h *ArticleHandler) ExplainSentenceWord(c *gin.Context) {
 		return
 	}
 
-	if cached, err := h.articleService.GetCachedWordExplanation(c.Request.Context(), sentenceID, word); err != nil {
-		logger.Error("❌ 查询单词解释缓存失败: %v", err)
-	} else if cached != nil {
-		jsonOK(c, "获取成功", explainWordResp{
-			Word:         cached.Word,
-			PartOfSpeech: cached.PartOfSpeech,
-			Meaning:      cached.Meaning,
-			Tip:          cached.Tip,
-			SentenceID:   sentenceID,
-			ArticleID:    utils.EncryptID(articleID),
-		})
-		return
-	}
-
 	sentence, err := h.articleService.GetSentenceStudyContext(c.Request.Context(), articleID, sentenceID, userID)
 	if err != nil {
 		h.handleSentenceContextError(c, err)
 		return
 	}
 
-	prompt := fmt.Sprintf("%s\n\n文章标题：%s\n英文句子：%s\n中文翻译：%s\n用户点击的单词：%s",
-		services.WordExplainPromptTemplate,
-		sentence.ArticleTitle,
-		sentence.Original,
-		sentence.Translation,
-		word,
-	)
-
-	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
-	if err != nil {
-		logger.Error("❌ 单词解释失败: %v", err)
-		jsonError(c, http.StatusInternalServerError, "生成单词解释失败")
-		return
-	}
-
 	var response explainWordResp
-	if err := decodeJSONObject(raw, &response); err != nil {
-		logger.Error("❌ 单词解释解析失败: %v raw=%s", err, raw)
-		jsonError(c, http.StatusInternalServerError, "单词解释解析失败")
-		return
+	if cached, cacheErr := h.articleService.GetCachedWordExplanation(c.Request.Context(), sentenceID, word); cacheErr != nil {
+		logger.Error("❌ 查询单词解释缓存失败: %v", cacheErr)
+	} else if cached != nil {
+		response = explainWordResp{
+			Word:         cached.Word,
+			PartOfSpeech: cached.PartOfSpeech,
+			Meaning:      cached.Meaning,
+			Tip:          cached.Tip,
+		}
+	} else {
+		prompt := fmt.Sprintf("%s\n\n文章标题：%s\n英文句子：%s\n中文翻译：%s\n用户点击的单词：%s",
+			services.WordExplainPromptTemplate,
+			sentence.ArticleTitle,
+			sentence.Original,
+			sentence.Translation,
+			word,
+		)
+
+		raw, aiErr := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+		if aiErr != nil {
+			logger.Error("❌ 单词解释失败: %v", aiErr)
+			jsonError(c, http.StatusInternalServerError, "生成单词解释失败")
+			return
+		}
+
+		if err := decodeJSONObject(raw, &response); err != nil {
+			logger.Error("❌ 单词解释解析失败: %v raw=%s", err, raw)
+			jsonError(c, http.StatusInternalServerError, "单词解释解析失败")
+			return
+		}
+		if strings.TrimSpace(response.Word) == "" {
+			response.Word = word
+		}
+		if saveErr := h.articleService.SaveCachedWordExplanation(c.Request.Context(), services.CachedWordExplanation{
+			SentenceID:     sentenceID,
+			NormalizedWord: word,
+			Word:           response.Word,
+			PartOfSpeech:   response.PartOfSpeech,
+			Meaning:        response.Meaning,
+			Tip:            response.Tip,
+		}); saveErr != nil {
+			logger.Warn("⚠️ 保存单词解释缓存失败: %v", saveErr)
+		}
 	}
+
 	if strings.TrimSpace(response.Word) == "" {
 		response.Word = word
 	}
-	if saveErr := h.articleService.SaveCachedWordExplanation(c.Request.Context(), services.CachedWordExplanation{
-		SentenceID:     sentenceID,
-		NormalizedWord: word,
-		Word:           response.Word,
-		PartOfSpeech:   response.PartOfSpeech,
-		Meaning:        response.Meaning,
-		Tip:            response.Tip,
-	}); saveErr != nil {
-		logger.Warn("⚠️ 保存单词解释缓存失败: %v", saveErr)
-	}
 	response.SentenceID = sentenceID
 	response.ArticleID = utils.EncryptID(articleID)
+
+	if saveErr := h.articleService.UpsertUserWordBookEntry(c.Request.Context(), services.UserWordBookEntry{
+		UserID:              userID,
+		ArticleID:           articleID,
+		SentenceID:          sentenceID,
+		Word:                response.Word,
+		SentenceOriginal:    sentence.Original,
+		SentenceTranslation: sentence.Translation,
+		PartOfSpeech:        response.PartOfSpeech,
+		Meaning:             response.Meaning,
+		Tip:                 response.Tip,
+	}); saveErr != nil {
+		logger.Warn("⚠️ 写入用户生词本失败: %v", saveErr)
+	}
 
 	jsonOK(c, "获取成功", response)
 }

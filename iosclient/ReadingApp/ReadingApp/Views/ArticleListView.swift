@@ -21,6 +21,7 @@ private struct ArticleSectionGroup: Identifiable {
 struct ArticleListView: View {
     @StateObject private var viewModel = ArticleListViewModel()
     @StateObject private var reviewTasksViewModel = ReviewTasksViewModel()
+    @StateObject private var wordBookViewModel = WordBookViewModel()
     @State private var isDraftPresented = false
     @Environment(\.appNavigationPath) private var appNavigationPath
 
@@ -85,34 +86,47 @@ struct ArticleListView: View {
 
     private var header: some View {
         HStack(alignment: .top) {
-            Text(viewModel.currentTab == "tasks" ? "任务" : "Library")
+            Text(headerTitle)
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
             Spacer()
 
-            Button {
-                isDraftPresented = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
-                    .frame(width: 40, height: 40)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
-                    )
+            if viewModel.currentTab != "wordBook" {
+                Button {
+                    isDraftPresented = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                        .frame(width: 40, height: 40)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 40)
         .padding(.top, 28)
         .padding(.bottom, 14)
         .background(Color.white)
+    }
+
+    private var headerTitle: String {
+        switch viewModel.currentTab {
+        case "tasks":
+            return "任务"
+        case "wordBook":
+            return "单词本"
+        default:
+            return "Library"
+        }
     }
 
     private var articleSections: some View {
@@ -137,6 +151,25 @@ struct ArticleListView: View {
                     },
                     onAddArticle: {
                         isDraftPresented = true
+                    }
+                )
+            } else if viewModel.currentTab == "wordBook" {
+                WordBookView(
+                    viewModel: wordBookViewModel,
+                    onOpenArticle: { articleId in
+                        let article = viewModel.articles.first(where: { $0.id == articleId }) ?? ArticleItem(
+                            id: articleId,
+                            articleId: 0,
+                            title: "Article",
+                            sentenceCount: 0,
+                            wordCount: 0,
+                            readCount: 0,
+                            createdAt: "",
+                            lastReadAt: nil
+                        )
+                        appNavigationPath?.wrappedValue.append(
+                            AppNavigationRoute.articleRoute(.article(article))
+                        )
                     }
                 )
             } else {
@@ -280,11 +313,18 @@ struct ArticleListView: View {
                 }
             }
             Spacer()
+            tabItem(icon: "character.book.closed", title: "单词本", isActive: viewModel.currentTab == "wordBook") {
+                viewModel.switchTab("wordBook")
+                Task {
+                    await wordBookViewModel.refreshEntries()
+                }
+            }
+            Spacer()
             tabItem(icon: "gearshape", title: "设置", isActive: false) {
                 appNavigationPath?.wrappedValue.append(AppNavigationRoute.stats)
             }
         }
-        .padding(.horizontal, 54)
+        .padding(.horizontal, 28)
         .padding(.top, 14)
         .padding(.bottom, 20)
         .background(

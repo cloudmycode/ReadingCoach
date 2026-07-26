@@ -8,10 +8,11 @@ import (
 
 // Handlers 聚合了所有业务 HTTP 处理器，便于统一注册路由。
 type Handlers struct {
-	Auth    *AuthHandler
-	Article *ArticleHandler
-	Review  *ReviewHandler
-	Stats   *StatsHandler
+	Auth     *AuthHandler
+	Article  *ArticleHandler
+	Review   *ReviewHandler
+	WordBook *WordBookHandler
+	Stats    *StatsHandler
 }
 
 // Route 描述单个 HTTP 接口。
@@ -48,6 +49,8 @@ type APIGroup struct {
 // │ POST    │ /api/articles/:id/sentences/:sentence_id              │ 是 │ 修改句子并重译 │
 // │ POST    │ /api/articles/:id/sentences/:sentence_id/explain-word │ 是 │ 解释句子单词 │
 // │ POST    │ /api/articles/:id/sentences/:sentence_id/ask          │ 是 │ 围绕句子提问 │
+// │ GET     │ /api/word-book           │  是  │ 获取用户生词本           │
+// │ DELETE  │ /api/word-book/:entry_id │  是  │ 删除生词本条目           │
 // │ GET     │ /api/stats/overview      │  是  │ 获取学习统计概览         │
 // └─────────┴──────────────────────────┴──────┴──────────────────────────┘
 func (h *Handlers) APIRoutes() []APIGroup {
@@ -83,6 +86,14 @@ func (h *Handlers) APIRoutes() []APIGroup {
 			Routes: []Route{
 				{http.MethodGet, "/tasks", true, "获取复习任务列表", h.Review.ListTasks},
 				{http.MethodPost, "/articles/:id/complete", true, "完成文章复习任务", h.Review.CompleteArticleTask},
+			},
+		},
+		{
+			Prefix: "/word-book",
+			Desc:   "生词本",
+			Routes: []Route{
+				{http.MethodGet, "", true, "获取用户生词本", h.WordBook.ListWordBook},
+				{http.MethodDelete, "/:entry_id", true, "删除生词本条目", h.WordBook.DeleteWordBookEntry},
 			},
 		},
 		{
