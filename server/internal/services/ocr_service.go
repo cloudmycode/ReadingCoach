@@ -7,10 +7,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"words/server/internal/logger"
+)
+
+var (
+	// 含汉字的半角/全角括号整段删除，例如 "(你好)"、"（注释）"。
+	ocrParenGroupWithHan = regexp.MustCompile(`\([^()]*\p{Han}[^()]*\)|（[^（）]*\p{Han}[^（）]*）`)
+	// 去掉中文后残留的空括号。
+	ocrEmptyParens = regexp.MustCompile(`\(\s*\)|（\s*）`)
 )
 
 // truncateForLog 截断日志中过长的内容，避免刷屏。
@@ -28,10 +37,11 @@ type ImageTextExtractor interface {
 
 // ArticleImageOCRPrompt 指导视觉模型只提取书本正文英文，去除噪音并保留段落。
 const ArticleImageOCRPrompt = `你是专业的英文书籍文字识别助手。请识别并提取图片中的英文正文内容，严格遵守：
-1. 只输出正文本身，保留自然段落，不同段落之间用一个空行分隔；
-2. 去除页眉、页脚、页码、书名、章节名、练习题、选项、批注和手写笔记等非正文内容；
-3. 修正明显的识别错误以及被行末换行拆断的单词，但不得改写、翻译、增删正文内容；
-4. 直接输出纯文本正文，不要输出任何解释、标题、序号或 Markdown 标记。`
+1. 只输出英文正文本身，保留自然段落，不同段落之间用一个空行分隔；
+2. 必须忽略并删除图片中的全部中文（含中文译文、注释、批注、题干等），一个汉字都不要输出；
+3. 去除页眉、页脚、页码、书名、章节名、练习题、选项、批注和手写笔记等非正文内容；
+4. 修正明显的识别错误以及被行末换行拆断的单词，但不得改写、翻译、增删英文正文；
+5. 直接输出纯文本英文正文，不要输出任何解释、标题、序号或 Markdown 标记。`
 
 // OCRService 通过支持视觉的多模态模型（OpenAI 兼容接口，如阿里 Qwen-VL）识别图片正文。
 type OCRService struct {
@@ -164,7 +174,63 @@ func (s *OCRService) ExtractArticleText(ctx context.Context, imageBase64, mimeTy
 		return "", err
 	}
 
-	content = strings.TrimSpace(content)
+	content = filterChineseFromOCRText(content)
 	logger.Info("✅ [OCR] 识别完成，正文 %d 字符，预览：%s", len(content), truncateForLog(content, 300))
 	return content, nil
+}
+
+// filterChineseFromOCRText 去掉 OCR 结果中的汉字与中文标点，只保留英文可读内容。
+// 含中文的括号整段删除；去中文后残留的空括号一并清除。
+func filterChineseFromOCRText(raw string) string {
+	text := ocrParenGroupWithHan.ReplaceAllString(raw, "")
+
+	var builder strings.Builder
+	builder.Grow(len(text))
+	for _, r := range text {
+		if unicode.Is(unicode.Han, r) || isCJKPunctuation(r) {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	text = ocrEmptyParens.ReplaceAllString(builder.String(), "")
+
+	lines := strings.Split(text, "\n")
+	cleaned := make([]string, 0, len(lines))
+	blankPending := false
+	for _, line := range lines {
+		line = strings.TrimSpace(ocrEmptyParens.ReplaceAllString(line, ""))
+		line = collapseASCIISpaces(line)
+		if line == "" {
+			if len(cleaned) > 0 {
+				blankPending = true
+			}
+			continue
+		}
+		if blankPending {
+			cleaned = append(cleaned, "")
+			blankPending = false
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+func isCJKPunctuation(r rune) bool {
+	switch {
+	case r >= 0x3000 && r <= 0x303F: // CJK 符号标点（含 ideographic space）
+		return true
+	case r >= 0xFF01 && r <= 0xFF60: // 全角 ASCII/标点（中文排版常见）
+		return true
+	case r == '，' || r == '。' || r == '！' || r == '？' || r == '；' || r == '：' ||
+		r == '、' || r == '（' || r == '）' || r == '【' || r == '】' ||
+		r == '《' || r == '》' || r == '「' || r == '」' || r == '『' || r == '』':
+		return true
+	default:
+		return false
+	}
+}
+
+func collapseASCIISpaces(s string) string {
+	fields := strings.Fields(s)
+	return strings.Join(fields, " ")
 }

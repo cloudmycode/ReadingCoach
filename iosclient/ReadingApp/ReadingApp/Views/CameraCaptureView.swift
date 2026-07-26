@@ -220,13 +220,17 @@ private struct CameraPreviewHolder: UIViewRepresentable {
     
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
+        view.backgroundColor = .black
         view.videoPreviewLayer.session = session
-        view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        // AspectFit：完整显示相机视野。AspectFill 会裁边放大，iPad 上尤其明显，
+        // 导致要离书本很远才能拍全一页。
+        view.videoPreviewLayer.videoGravity = .resizeAspect
         return view
     }
     
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.videoPreviewLayer.session = session
+        uiView.videoPreviewLayer.videoGravity = .resizeAspect
     }
 }
 
@@ -237,6 +241,11 @@ private final class PreviewView: UIView {
     
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         layer as! AVCaptureVideoPreviewLayer
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        videoPreviewLayer.frame = bounds
     }
 }
 
@@ -646,15 +655,9 @@ final class CameraService {
                 )
             }
 
-            // 将初始变焦调到主广角视野，避免默认使用超广角的过宽画面
-            if let firstSwitchOver = device.virtualDeviceSwitchOverVideoZoomFactors.first {
-                let target = CGFloat(truncating: firstSwitchOver)
-                let clamped = min(
-                    max(target, device.minAvailableVideoZoomFactor),
-                    device.maxAvailableVideoZoomFactor
-                )
-                device.videoZoomFactor = clamped
-            }
+            // 文档拍照优先最广视野，方便 iPad 近距离拍全整页；
+            // 自动微距仍可在贴近书本时切换镜头对焦。
+            device.videoZoomFactor = device.minAvailableVideoZoomFactor
         } catch {
             // 微距配置失败时忽略，继续使用默认相机配置
         }
