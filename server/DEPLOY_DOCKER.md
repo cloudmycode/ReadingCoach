@@ -161,10 +161,10 @@ cp config.docker.example.json config.json
   "JWTSecret": "一段足够长的随机字符串",
   "LogsDir": "./logs",
   "AttachmentsDir": "./attachments",
-  "DeepSeekAPIKey": "填入你的 DeepSeek Key",
-  "DeepSeekAPIURL": "https://api.deepseek.com/v1/chat/completions",
-  "DeepSeekModel": "deepseek-chat",
-  "QwenVLAPIKey": "填入你的 DashScope(Qwen-VL) Key",
+  "QwenAPIKey": "填入你的 DashScope Key",
+  "QwenAPIURL": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+  "QwenModel": "qwen-plus",
+  "QwenVLAPIKey": "填入你的 DashScope Key（可与文本 Key 相同）",
   "QwenVLAPIURL": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
   "QwenVLModel": "qwen-vl-ocr",
   "TTSVoice": "en-US-JennyNeural"
@@ -237,8 +237,7 @@ SSH_PORT=22 \
 ./scripts/docker-ship.sh
 ```
 
-> 之后每次更新代码，本机重新跑一遍 `./scripts/docker-ship.sh` 即可滚动更新后端。
-> MySQL 容器不受影响、数据保留。
+> 日常改代码后如何发版，见**第六节**。
 
 ### 方式二（备选）：直接在服务器上构建
 
@@ -285,7 +284,109 @@ curl http://localhost:8080/api/health
 
 ---
 
-## 六、日常运维命令
+## 六、更新后端代码到服务器
+
+改完 Go 代码（或 `Dockerfile` / 依赖）后，需要**重新构建镜像并替换服务器上的后端容器**。MySQL 数据卷、附件卷、日志卷都会保留，一般不用动数据库。
+
+本项目推荐用**方式 A**（本机构建再推上去）；服务器网络差、不便拉 Go 依赖时不要用方式 B。
+
+### 方式 A（推荐）：本机一键推送
+
+适用：日常改 `server/` 下的 Go 代码、依赖、`Dockerfile`。
+
+#### 1. 确认本机环境
+
+- 本机 Docker Desktop 已启动（含 buildx）
+- 能 SSH 到服务器（默认 `root@39.105.229.91`）
+- 本地改动已保存；建议先提交/推送到 Git，方便回溯（脚本本身不依赖 Git）
+
+#### 2. 在本机执行发版脚本
+
+```bash
+cd /path/to/ReadingCoach/server
+./scripts/docker-ship.sh
+```
+
+脚本会自动完成：
+
+1. `docker buildx` 按 `linux/amd64` 构建 `readingcoach-server:latest`
+2. `docker save | gzip` 打包镜像
+3. `scp` 传到服务器 `/tmp/readingcoach-server.tar.gz`
+4. 服务器 `docker load` + `docker compose up -d --no-build` 滚动替换后端容器
+
+自定义目标主机/目录时：
+
+```bash
+REMOTE_HOST=root@你的IP \
+REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/ReadingCoach/server \
+SSH_PORT=22 \
+./scripts/docker-ship.sh
+```
+
+#### 3. 验证更新是否成功
+
+```bash
+# 本机或服务器上均可
+ssh root@39.105.229.91 'cd /home/website/readingcoach.jingjiangke.com/ReadingCoach/server && docker compose ps'
+ssh root@39.105.229.91 'cd /home/website/readingcoach.jingjiangke.com/ReadingCoach/server && docker compose logs --tail=50 server'
+curl -s https://readingcoach.jingjiangke.com/api/health
+```
+
+期望：`readingcoach-server` 为 `running`（最好 `healthy`），健康接口返回正常。
+
+> 耗时主要在本机构建与传镜像（通常几分钟）。中间短暂不可用属正常；MySQL 容器不会被重建。
+
+---
+
+### 方式 B（备选）：在服务器上拉代码并重建
+
+适用：本机不便构建，且服务器能顺利拉 Go 依赖（`GOPROXY` 已配好）。
+
+```bash
+ssh root@39.105.229.91
+cd /home/website/readingcoach.jingjiangke.com/ReadingCoach
+git pull
+cd server
+docker compose up -d --build
+docker compose ps
+curl -s http://localhost:8080/api/health
+```
+
+> `git pull` 不会覆盖服务器上的 `.env`、`config.json`（它们通常不在仓库里）。若改过 `docker-compose.yml`，重建后会一并生效。
+
+---
+
+### 按变更类型选择操作
+
+| 你改了什么 | 怎么更新 |
+|---|---|
+| Go 代码 / `go.mod` / `Dockerfile` | 方式 A 或 B（必须重建镜像） |
+| 仅 `config.json`（Key、模型名等） | **不用重建镜像**，在服务器改文件后执行 `docker compose restart server` |
+| 仅 `.env`（端口、密码等） | 改完后 `docker compose up -d`（必要时再 `restart`） |
+| 仅 Nginx 配置 `deploy/nginx.readingcoach.conf` | 拷到 `/etc/nginx/conf.d/` 后 `nginx -t && systemctl reload nginx` |
+| `db/schema.sql`（表结构） | **不会**自动应用到已有库；需手工在库里执行 `ALTER`/`CREATE`，或走第八节「清库重来」（会丢数据） |
+
+#### 只改配置示例
+
+```bash
+ssh root@39.105.229.91
+cd /home/website/readingcoach.jingjiangke.com/ReadingCoach/server
+# 编辑 config.json 后：
+docker compose restart server
+curl -s http://localhost:8080/api/health
+```
+
+#### 库表有变更时（已有生产数据）
+
+不要指望改 `schema.sql` 再重启就会升级。正确做法：
+
+1. 先备份：`docker compose exec mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" ReadingCoach' > backup_$(date +%F).sql`
+2. 在 MySQL 里执行迁移 SQL（`docker compose exec mysql mysql -u root -p ReadingCoach < migrate.sql`）
+3. 再按方式 A/B 发版后端（若代码依赖新表结构）
+
+---
+
+## 七、日常运维命令
 
 ```bash
 # 停止（保留数据）
@@ -297,12 +398,7 @@ docker compose start
 # 重启后端（不影响数据库）
 docker compose restart server
 
-# 更新后端（方式一）：在【本机】重新构建并推送，服务器自动滚动更新
-#   （在本机 server 目录执行）
-./scripts/docker-ship.sh
-
-# 更新后端（方式二）：在【服务器】上直接拉代码重建
-git pull && docker compose up -d --build
+# 更新后端：见第六节（推荐本机 ./scripts/docker-ship.sh）
 
 # 停止并删除容器（数据卷保留）
 docker compose down
@@ -324,7 +420,7 @@ docker compose exec mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" 
 
 ---
 
-## 七、常见问题排查
+## 八、常见问题排查
 
 ### 1. 后端报连接数据库失败
 
@@ -364,39 +460,30 @@ docker compose restart server
 
 ---
 
-## 八、（可选）配合 Nginx 反向代理 + HTTPS
+## 九、（可选）配合 Nginx 反向代理 + HTTPS
 
-若用域名 `readingcoach.jingjiangke.com` 对外，在宿主机 Nginx 增加：
+若用域名 `readingcoach.jingjiangke.com` 对外，可直接使用仓库里的配置：
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name readingcoach.jingjiangke.com;
-
-    ssl_certificate     /etc/letsencrypt/live/readingcoach.jingjiangke.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/readingcoach.jingjiangke.com/privkey.pem;
-
-    # 拍照 OCR 会上传较大图片
-    client_max_body_size 20m;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 180s;   # OCR/AI 处理较慢，放宽超时
-    }
-}
-
-server {
-    listen 80;
-    server_name readingcoach.jingjiangke.com;
-    return 301 https://$host$request_uri;
-}
+```bash
+cp /home/website/readingcoach.jingjiangke.com/ReadingCoach/server/deploy/nginx.readingcoach.conf \
+   /etc/nginx/conf.d/readingcoach.conf
+nginx -t && systemctl reload nginx
 ```
 
-改完后 `nginx -t && nginx -s reload` 生效。
+证书路径对应通配符证书（DNS-01 申请）：
+
+```text
+/etc/letsencrypt/live/jingjiangke.com/fullchain.pem
+/etc/letsencrypt/live/jingjiangke.com/privkey.pem
+```
+
+配置要点：HTTP→HTTPS 跳转；反代到 `127.0.0.1:8080`；`client_max_body_size 20m`；OCR 超时 `proxy_read_timeout 180s`。
+
+验证：
+
+```bash
+curl -s https://readingcoach.jingjiangke.com/api/health
+```
 
 ---
 

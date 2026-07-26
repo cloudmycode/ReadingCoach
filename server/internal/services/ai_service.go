@@ -19,33 +19,29 @@ type TextAnalyzer interface {
 	CompleteTextPrompt(ctx context.Context, prompt string) (string, error)
 }
 
-// AIService 只负责调用 DeepSeek 做文本理解。
+// AIService 通过阿里 DashScope（千问）OpenAI 兼容接口做文本理解。
 type AIService struct {
-	deepSeekAPIKey string
-	deepSeekAPIURL string
-	deepSeekModel  string
+	apiKey string
+	apiURL string
+	model  string
 
 	client *http.Client
 }
 
-// NewAIService 创建 DeepSeek 文本服务实例。
-func NewAIService(
-	deepSeekAPIKey,
-	deepSeekAPIURL,
-	deepSeekModel string,
-) *AIService {
-	if deepSeekAPIURL == "" {
-		deepSeekAPIURL = "https://api.deepseek.com/v1/chat/completions"
+// NewAIService 创建千问文本服务实例。
+func NewAIService(apiKey, apiURL, model string) *AIService {
+	if apiURL == "" {
+		apiURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 	}
-	if deepSeekModel == "" {
-		deepSeekModel = "deepseek-chat"
+	if model == "" {
+		model = "qwen-plus"
 	}
 
 	return &AIService{
-		deepSeekAPIKey: deepSeekAPIKey,
-		deepSeekAPIURL: deepSeekAPIURL,
-		deepSeekModel:  deepSeekModel,
-		client:         &http.Client{Timeout: 90 * time.Second},
+		apiKey: apiKey,
+		apiURL: apiURL,
+		model:  model,
+		client: &http.Client{Timeout: 90 * time.Second},
 	}
 }
 
@@ -75,8 +71,8 @@ type aiChatResponse struct {
 }
 
 func (s *AIService) AnalyzeTextWithPrompt(ctx context.Context, text string, prompt string) ([][]string, error) {
-	if strings.TrimSpace(s.deepSeekAPIKey) == "" {
-		return nil, fmt.Errorf("deepseek api key not configured")
+	if strings.TrimSpace(s.apiKey) == "" {
+		return nil, fmt.Errorf("qwen api key not configured")
 	}
 
 	text = strings.TrimSpace(text)
@@ -84,53 +80,7 @@ func (s *AIService) AnalyzeTextWithPrompt(ctx context.Context, text string, prom
 		return nil, fmt.Errorf("no text provided")
 	}
 
-	requestBody := aiChatRequest{
-		Model:       s.deepSeekModel,
-		MaxTokens:   4096,
-		Temperature: 0.1,
-		Messages: []aiChatMessage{
-			{
-				Role:    "user",
-				Content: prompt + "\n\n正文：\n" + text,
-			},
-		},
-	}
-
-	payload, err := json.Marshal(requestBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.deepSeekAPIURL, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.deepSeekAPIKey)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("deepseek error: %s", string(body))
-	}
-
-	var result aiChatResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	if len(result.Choices) == 0 {
-		return nil, fmt.Errorf("deepseek returned empty choices")
-	}
-
-	rawContent, err := extractAIMessageText(result.Choices[0].Message.Content)
+	rawContent, err := s.chatCompletion(ctx, prompt+"\n\n正文：\n"+text, 4096, 0.1)
 	if err != nil {
 		return nil, err
 	}
@@ -144,17 +94,21 @@ func (s *AIService) AnalyzeTextWithPrompt(ctx context.Context, text string, prom
 }
 
 func (s *AIService) CompleteTextPrompt(ctx context.Context, prompt string) (string, error) {
-	if strings.TrimSpace(s.deepSeekAPIKey) == "" {
-		return "", fmt.Errorf("deepseek api key not configured")
+	if strings.TrimSpace(s.apiKey) == "" {
+		return "", fmt.Errorf("qwen api key not configured")
 	}
 	if strings.TrimSpace(prompt) == "" {
 		return "", fmt.Errorf("no prompt provided")
 	}
 
+	return s.chatCompletion(ctx, prompt, 2048, 0.2)
+}
+
+func (s *AIService) chatCompletion(ctx context.Context, prompt string, maxTokens int, temperature float64) (string, error) {
 	requestBody := aiChatRequest{
-		Model:       s.deepSeekModel,
-		MaxTokens:   2048,
-		Temperature: 0.2,
+		Model:       s.model,
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
 		Messages: []aiChatMessage{
 			{
 				Role:    "user",
@@ -168,12 +122,12 @@ func (s *AIService) CompleteTextPrompt(ctx context.Context, prompt string) (stri
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.deepSeekAPIURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.deepSeekAPIKey)
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -186,7 +140,7 @@ func (s *AIService) CompleteTextPrompt(ctx context.Context, prompt string) (stri
 		return "", fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("deepseek error: %s", string(body))
+		return "", fmt.Errorf("qwen error(status=%d): %s", resp.StatusCode, truncateForLog(string(body), 500))
 	}
 
 	var result aiChatResponse
@@ -194,7 +148,7 @@ func (s *AIService) CompleteTextPrompt(ctx context.Context, prompt string) (stri
 		return "", fmt.Errorf("decode response: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("deepseek returned empty choices")
+		return "", fmt.Errorf("qwen returned empty choices")
 	}
 
 	return extractAIMessageText(result.Choices[0].Message.Content)
@@ -224,5 +178,5 @@ func extractAIMessageText(raw json.RawMessage) (string, error) {
 		return builder.String(), nil
 	}
 
-	return "", fmt.Errorf("unsupported deepseek content format")
+	return "", fmt.Errorf("unsupported qwen content format")
 }

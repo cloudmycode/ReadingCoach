@@ -24,7 +24,7 @@ RUN go build -trimpath -buildvcs=false -o /out/readingcoach-server ./cmd/server
 # ---------- 运行阶段：精简镜像 ----------
 FROM alpine:3.20
 
-# ca-certificates 用于访问 DeepSeek / Qwen-VL 等 HTTPS 接口；tzdata 保证 loc=Local 时区正确
+# ca-certificates 用于访问 DashScope（千问文本/OCR）等 HTTPS 接口；tzdata 保证 loc=Local 时区正确
 RUN apk add --no-cache ca-certificates tzdata wget && \
     adduser -D -u 10001 appuser
 

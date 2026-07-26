@@ -128,29 +128,29 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 		logger.Warn("⚠️ 初始化复习任务表失败: %v", err)
 	}
 
-	// DeepSeek 文本能力在未配置 API Key 时不可用。
+	// 千问文本能力在未配置 API Key 时不可用。
 	aiService := services.NewAIService(
-		cfg.DeepSeekAPIKey,
-		cfg.DeepSeekAPIURL,
-		cfg.DeepSeekModel,
+		cfg.QwenAPIKey,
+		cfg.QwenAPIURL,
+		cfg.QwenModel,
 	)
 
-	if strings.TrimSpace(cfg.DeepSeekAPIKey) == "" {
-		logger.Warn("⚠️ DeepSeek 未配置，文本能力不可用")
+	if strings.TrimSpace(cfg.QwenAPIKey) == "" {
+		logger.Warn("⚠️ 千问文本未配置，拆句/翻译/单词解释不可用")
 	} else {
-		logger.Info("✅ AI 服务初始化成功（DeepSeek 文本处理）")
+		logger.Info("✅ AI 服务初始化成功（千问文本 model=%s）", cfg.QwenModel)
 	}
 
-	// Qwen-VL 视觉 OCR 在未配置 API Key 时不可用。
+	// 千问视觉 OCR 在未配置 API Key 时不可用。
 	ocrService := services.NewOCRService(
 		cfg.QwenVLAPIKey,
 		cfg.QwenVLAPIURL,
 		cfg.QwenVLModel,
 	)
 	if strings.TrimSpace(cfg.QwenVLAPIKey) == "" {
-		logger.Warn("⚠️ Qwen-VL 未配置，拍照图片识别不可用")
+		logger.Warn("⚠️ 千问视觉 OCR 未配置，拍照图片识别不可用")
 	} else {
-		logger.Info("✅ 图片识别服务初始化成功（Qwen-VL OCR）")
+		logger.Info("✅ 图片识别服务初始化成功（千问 OCR model=%s）", cfg.QwenVLModel)
 	}
 
 	return &appServices{

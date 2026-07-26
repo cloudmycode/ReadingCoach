@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -20,11 +21,12 @@ type Config struct {
 	LogsDir        string
 	AttachmentsDir string
 
-	DeepSeekAPIKey string
-	DeepSeekAPIURL string
-	DeepSeekModel  string
+	// 千问文本（阿里 DashScope，OpenAI 兼容）：拆句、翻译、单词解释、句子问答。
+	QwenAPIKey string
+	QwenAPIURL string
+	QwenModel  string
 
-	// Qwen-VL（阿里 DashScope，OpenAI 兼容）用于拍照图片的文字识别（OCR）。
+	// 千问视觉 OCR（同一 DashScope 账号，模型不同）。
 	QwenVLAPIKey string
 	QwenVLAPIURL string
 	QwenVLModel  string
@@ -60,6 +62,7 @@ func MustLoadFromEnv() Config {
 		log.Fatal("❌ JWT_SECRET 不能为空，请检查配置文件")
 	}
 
+	cfg.normalizeDashScopeKeys()
 	return cfg
 }
 
@@ -75,9 +78,9 @@ func getDefaultConfig() Config {
 		JWTSecret:      "dev-secret-change-me",
 		LogsDir:        "./logs",
 		AttachmentsDir: "./attachments",
-		DeepSeekAPIKey: "replace-with-deepseek-api-key",
-		DeepSeekAPIURL: "https://api.deepseek.com/v1/chat/completions",
-		DeepSeekModel:  "deepseek-chat",
+		QwenAPIKey:     "replace-with-dashscope-api-key",
+		QwenAPIURL:     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+		QwenModel:      "qwen-plus",
 		QwenVLAPIKey:   "replace-with-dashscope-api-key",
 		QwenVLAPIURL:   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
 		QwenVLModel:    "qwen-vl-ocr",
@@ -92,12 +95,56 @@ func loadConfigFromFile(path string) (Config, error) {
 		return Config{}, fmt.Errorf("读取配置文件失败: %w", err)
 	}
 
+	// 兼容旧字段：DeepSeek* → Qwen*
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return Config{}, fmt.Errorf("解析配置文件失败: %w", err)
+	}
+	migrateLegacyDeepSeekFields(raw)
+
+	migrated, err := json.Marshal(raw)
+	if err != nil {
+		return Config{}, fmt.Errorf("迁移配置失败: %w", err)
+	}
+
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(migrated, &cfg); err != nil {
 		return Config{}, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
 	return cfg, nil
+}
+
+// migrateLegacyDeepSeekFields 将旧 DeepSeek 配置映射为千问文本配置（仅当新字段缺失时）。
+func migrateLegacyDeepSeekFields(raw map[string]json.RawMessage) {
+	if _, ok := raw["QwenAPIKey"]; !ok {
+		if v, ok := raw["DeepSeekAPIKey"]; ok {
+			raw["QwenAPIKey"] = v
+		}
+	}
+	if _, ok := raw["QwenAPIURL"]; !ok {
+		// 旧 DeepSeek URL 不能直接复用，缺省时走千问默认地址
+		raw["QwenAPIURL"] = json.RawMessage(`"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"`)
+	}
+	if _, ok := raw["QwenModel"]; !ok {
+		raw["QwenModel"] = json.RawMessage(`"qwen-plus"`)
+	}
+}
+
+// normalizeDashScopeKeys 文本/视觉共用同一 DashScope Key 时可互为缺省。
+func (c *Config) normalizeDashScopeKeys() {
+	if strings.TrimSpace(c.QwenAPIKey) == "" && strings.TrimSpace(c.QwenVLAPIKey) != "" {
+		c.QwenAPIKey = c.QwenVLAPIKey
+	}
+	if strings.TrimSpace(c.QwenVLAPIKey) == "" && strings.TrimSpace(c.QwenAPIKey) != "" {
+		c.QwenVLAPIKey = c.QwenAPIKey
+	}
+	if strings.TrimSpace(c.QwenAPIURL) == "" {
+		c.QwenAPIURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+	}
+	if strings.TrimSpace(c.QwenVLAPIURL) == "" {
+		c.QwenVLAPIURL = c.QwenAPIURL
+	}
 }
 
 // saveConfigToFile 将配置保存到JSON文件

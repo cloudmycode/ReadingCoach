@@ -4,7 +4,7 @@
 //
 //  Created by GPT-5.1 Codex on 2025/11/27.
 //
-//  单张拍照组件：拍摄、编辑、识别完成后返回文字编辑页。
+//  单张拍照组件：拍摄 → 框选文字区域裁剪 → 云端识别后返回文字编辑页。
 
 import SwiftUI
 import AVFoundation
@@ -15,13 +15,16 @@ import Combine
 // MARK: - Constants
 
 private enum Constants {
-    static let jpegCompressionQuality: CGFloat = 0.85
-    /// 上传识别前的最长边像素上限。文档 OCR 用 ~2000px 已足够清晰，
+    static let jpegCompressionQuality: CGFloat = 0.75
+    /// 上传识别前的最长边像素上限。文档 OCR 用 ~1600px 已足够清晰，
     /// 过高分辨率会显著拖慢云端识别甚至超时。
-    static let maxUploadDimension: CGFloat = 2000
+    static let maxUploadDimension: CGFloat = 1600
     static let buttonSize: CGFloat = 60
     static let captureButtonSize: CGFloat = 80
     static let captureButtonInnerSize: CGFloat = 64
+    static let cornerHandleSize: CGFloat = 22
+    /// 归一化裁剪框最小边长（相对图片宽/高）
+    static let minCropSize: CGFloat = 0.08
     static let bottomButtonHeight: CGFloat = 100
 }
 
@@ -60,6 +63,9 @@ struct CameraCaptureView: View {
                 photo: $viewModel.photo,
                 isProcessing: viewModel.isProcessing,
                 onRetake: viewModel.retakePhoto,
+                onRotate: viewModel.rotatePhoto,
+                onCrop: viewModel.cropPhoto,
+                onRestoreOriginal: viewModel.restoreOriginal,
                 onSubmit: handleProcess
             )
         }
@@ -304,6 +310,36 @@ final class CameraViewModel: NSObject, ObservableObject {
         photo = nil
         isShowingPreview = false
     }
+
+    /// 按像素矩形裁剪当前预览图（原点在左上角）。始终基于当前显示图裁剪。
+    func cropPhoto(_ cropRect: CGRect) {
+        guard let cgImage = photo?.image.cgImage else { return }
+        let imageBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
+        let pixelRect = cropRect.integral.intersection(imageBounds)
+        guard pixelRect.width > 0,
+              pixelRect.height > 0,
+              let croppedImage = cgImage.cropping(to: pixelRect) else { return }
+        photo?.image = UIImage(cgImage: croppedImage, scale: 1, orientation: .up)
+    }
+
+    /// 恢复拍照原图，供重新框选裁剪。
+    func restoreOriginal() {
+        guard let original = photo?.originalImage else { return }
+        photo?.image = original
+    }
+
+    /// 逆时针旋转 90°。框选阶段同步旋转原图；已裁剪后只转当前图。
+    func rotatePhoto(updatingOriginal: Bool = true) {
+        guard let current = photo,
+              let rotatedImage = current.image.rotatedLeft() else { return }
+        let newOriginal: UIImage
+        if updatingOriginal {
+            newOriginal = current.originalImage.rotatedLeft() ?? rotatedImage
+        } else {
+            newOriginal = current.originalImage
+        }
+        photo = CapturedPhoto(image: rotatedImage, originalImage: newOriginal)
+    }
     
     func showPhotoPicker() {
         isShowingPhotoPicker = true
@@ -385,10 +421,19 @@ final class CameraViewModel: NSObject, ObservableObject {
 // MARK: - Photo model
 
 struct CapturedPhoto {
+    /// 当前用于预览/上传的图（可能已被裁剪）
     var image: UIImage
-    
+    /// 拍照/选图时的原图，用于「重新裁剪」
+    let originalImage: UIImage
+
     init(image: UIImage) {
         self.image = image
+        self.originalImage = image
+    }
+
+    init(image: UIImage, originalImage: UIImage) {
+        self.image = image
+        self.originalImage = originalImage
     }
     
     var currentJpegData: Data? {
@@ -604,13 +649,21 @@ final class CameraService {
     }
 }
 
-// MARK: - Preview View
+// MARK: - Preview View（拍完后先框选文字区域，裁剪后再识别）
 
 private struct PhotoPreviewView: View {
     @Binding var photo: CapturedPhoto?
     let isProcessing: Bool
     let onRetake: () -> Void
+    let onRotate: (_ updatingOriginal: Bool) -> Void
+    let onCrop: (CGRect) -> Void
+    let onRestoreOriginal: () -> Void
     let onSubmit: () -> Void
+
+    /// 归一化裁剪框（相对图片显示区域，0~1）
+    @State private var normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
+    /// 已完成裁剪：隐藏选区框，留在本页完整展示裁剪结果并等待识别
+    @State private var hasAppliedCrop = false
     
     var body: some View {
         NavigationStack {
@@ -623,26 +676,50 @@ private struct PhotoPreviewView: View {
                             width: geometry.size.width,
                             height: max(1, geometry.size.height - Constants.bottomButtonHeight)
                         )
+                        // 始终 aspectFit：完整显示选区内容，避免 aspectFill 裁掉末行文字
                         let displaySize = aspectFit(imageSize, inside: availableSize)
                         let center = CGPoint(
                             x: geometry.size.width / 2,
                             y: availableSize.height / 2
                         )
 
-                        Image(uiImage: photo.image)
-                            .resizable()
-                            .frame(width: displaySize.width, height: displaySize.height)
-                            .position(center)
+                        ZStack {
+                            Image(uiImage: photo.image)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: displaySize.width, height: displaySize.height)
+                                // 用像素尺寸作 id，裁剪后强制刷新，避免仍显示旧原图帧
+                                .id("\(Int(imageSize.width))x\(Int(imageSize.height))-\(hasAppliedCrop)")
+
+                            if !hasAppliedCrop {
+                                CropOverlay(
+                                    normalizedRect: $normalizedCropRect,
+                                    viewSize: displaySize
+                                )
+                                .frame(width: displaySize.width, height: displaySize.height)
+                            }
+                        }
+                        .frame(width: displaySize.width, height: displaySize.height)
+                        .position(center)
                     } else {
                         Text("暂无图片")
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                
-                VStack {
+
+                VStack(spacing: 0) {
+                    Text(hasAppliedCrop ? "已裁剪，可识别或重新裁剪" : "拖动边角框选文字区域")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.55))
+                        .clipShape(Capsule())
+                        .padding(.top, 16)
+
                     Spacer()
-                    
+
                     if photo != nil {
                         previewActions
                             .padding(.horizontal, 16)
@@ -672,29 +749,85 @@ private struct PhotoPreviewView: View {
     }
 
     private var previewActions: some View {
-        HStack(spacing: 40) {
-            previewAction("重拍", systemImage: "camera.fill", action: onRetake)
-            previewAction("识别文字", systemImage: "text.viewfinder", color: .green, action: onSubmit)
+        HStack(spacing: 16) {
+            Button {
+                onRetake()
+            } label: {
+                actionLabel("重拍", systemImage: "camera.fill", color: .white)
+            }
+            .disabled(isProcessing)
+
+            if hasAppliedCrop {
+                Button {
+                    beginRecrop()
+                } label: {
+                    actionLabel("重新裁剪", systemImage: "crop", color: .white)
+                }
                 .disabled(isProcessing)
+
+                Button {
+                    onRotate(false)
+                } label: {
+                    actionLabel("旋转", systemImage: "rotate.left", color: .white)
+                }
+                .disabled(isProcessing)
+
+                Button {
+                    onSubmit()
+                } label: {
+                    actionLabel("识别文字", systemImage: "text.viewfinder", color: .green)
+                }
+                .disabled(isProcessing)
+            } else {
+                Button {
+                    // 框选阶段同步转原图；旋转后重置选框，避免与新方向错位
+                    onRotate(true)
+                    normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
+                } label: {
+                    actionLabel("旋转", systemImage: "rotate.left", color: .white)
+                }
+                .disabled(isProcessing)
+
+                Button {
+                    applyCropAndStay()
+                } label: {
+                    actionLabel("完成裁剪", systemImage: "crop", color: .green)
+                }
+                .disabled(isProcessing)
+            }
         }
     }
 
-    private func previewAction(
-        _ title: String,
-        systemImage: String,
-        color: Color = .white,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 22))
-                Text(title)
-                    .font(.system(size: 12))
-            }
-            .foregroundColor(color)
-            .frame(maxWidth: .infinity)
+    private func actionLabel(_ title: String, systemImage: String, color: Color) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 22))
+            Text(title)
+                .font(.system(size: 12))
         }
+        .foregroundColor(color)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 只裁剪并留在本页：完整展示裁剪结果（不拉伸、不裁边），等待识别。
+    private func applyCropAndStay() {
+        guard let image = photo?.image else { return }
+        let size = pixelSize(of: image)
+        onCrop(CGRect(
+            x: normalizedCropRect.minX * size.width,
+            y: normalizedCropRect.minY * size.height,
+            width: normalizedCropRect.width * size.width,
+            height: normalizedCropRect.height * size.height
+        ))
+        hasAppliedCrop = true
+        normalizedCropRect = CGRect(x: 0.05, y: 0.05, width: 0.9, height: 0.9)
+    }
+
+    /// 恢复原图并重新进入框选。
+    private func beginRecrop() {
+        onRestoreOriginal()
+        hasAppliedCrop = false
+        normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
     }
 
     private func pixelSize(of image: UIImage) -> CGSize {
@@ -707,7 +840,181 @@ private struct PhotoPreviewView: View {
         let scale = min(bounds.width / source.width, bounds.height / source.height)
         return CGSize(width: source.width * scale, height: source.height * scale)
     }
+}
 
+// MARK: - Crop Overlay
+
+private struct CropOverlay: View {
+    @Binding var normalizedRect: CGRect
+    let viewSize: CGSize
+
+    @State private var dragStartRect: CGRect = .zero
+    @State private var isDragging = false
+    @State private var dragType: DragType = .none
+
+    enum DragType {
+        case none
+        case move
+        case resizeTopLeft
+        case resizeTopRight
+        case resizeBottomLeft
+        case resizeBottomRight
+    }
+
+    private let cornerHandleSize = Constants.cornerHandleSize
+
+    private var cropFrame: CGRect {
+        CGRect(
+            x: normalizedRect.origin.x * viewSize.width,
+            y: normalizedRect.origin.y * viewSize.height,
+            width: normalizedRect.width * viewSize.width,
+            height: normalizedRect.height * viewSize.height
+        )
+    }
+
+    private var topLeft: CGPoint { CGPoint(x: cropFrame.minX, y: cropFrame.minY) }
+    private var topRight: CGPoint { CGPoint(x: cropFrame.maxX, y: cropFrame.minY) }
+    private var bottomLeft: CGPoint { CGPoint(x: cropFrame.minX, y: cropFrame.maxY) }
+    private var bottomRight: CGPoint { CGPoint(x: cropFrame.maxX, y: cropFrame.maxY) }
+
+    var body: some View {
+        ZStack {
+            // 半透明遮罩，中间镂空选区
+            Color.black.opacity(0.55)
+                .overlay(
+                    Rectangle()
+                        .frame(width: cropFrame.width, height: cropFrame.height)
+                        .position(x: cropFrame.midX, y: cropFrame.midY)
+                        .blendMode(.destinationOut)
+                )
+                .compositingGroup()
+
+            Rectangle()
+                .stroke(Color.white, lineWidth: 2)
+                .frame(width: cropFrame.width, height: cropFrame.height)
+                .position(x: cropFrame.midX, y: cropFrame.midY)
+
+            CornerHandle(position: topLeft)
+            CornerHandle(position: topRight)
+            CornerHandle(position: bottomLeft)
+            CornerHandle(position: bottomRight)
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if !isDragging {
+                        isDragging = true
+                        dragStartRect = normalizedRect
+                        dragType = detectDragType(at: value.startLocation)
+                    }
+
+                    let deltaX = value.translation.width / max(viewSize.width, 1)
+                    let deltaY = value.translation.height / max(viewSize.height, 1)
+
+                    switch dragType {
+                    case .move:
+                        let newX = max(0, min(1 - dragStartRect.width, dragStartRect.origin.x + deltaX))
+                        let newY = max(0, min(1 - dragStartRect.height, dragStartRect.origin.y + deltaY))
+                        normalizedRect = CGRect(
+                            x: newX,
+                            y: newY,
+                            width: dragStartRect.width,
+                            height: dragStartRect.height
+                        )
+                    case .resizeTopLeft:
+                        normalizedRect = resizeFromTopLeft(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
+                    case .resizeTopRight:
+                        normalizedRect = resizeFromTopRight(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
+                    case .resizeBottomLeft:
+                        normalizedRect = resizeFromBottomLeft(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
+                    case .resizeBottomRight:
+                        normalizedRect = resizeFromBottomRight(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
+                    case .none:
+                        break
+                    }
+                }
+                .onEnded { _ in
+                    isDragging = false
+                    dragType = .none
+                }
+        )
+    }
+
+    private func detectDragType(at location: CGPoint) -> DragType {
+        // 触控区域略大于视觉手柄，便于手指操作
+        let handleRadius: CGFloat = max(cornerHandleSize, 36) / 2
+
+        if distance(location, topLeft) < handleRadius { return .resizeTopLeft }
+        if distance(location, topRight) < handleRadius { return .resizeTopRight }
+        if distance(location, bottomLeft) < handleRadius { return .resizeBottomLeft }
+        if distance(location, bottomRight) < handleRadius { return .resizeBottomRight }
+        if cropFrame.contains(location) { return .move }
+        return .none
+    }
+
+    private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
+        hypot(p1.x - p2.x, p1.y - p2.y)
+    }
+
+    private func resizeFromTopLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
+        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
+        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
+        return CGRect(
+            x: newX,
+            y: newY,
+            width: startRect.maxX - newX,
+            height: startRect.maxY - newY
+        )
+    }
+
+    private func resizeFromTopRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
+        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
+        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
+        return CGRect(
+            x: startRect.origin.x,
+            y: newY,
+            width: newWidth,
+            height: startRect.maxY - newY
+        )
+    }
+
+    private func resizeFromBottomLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
+        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
+        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
+        return CGRect(
+            x: newX,
+            y: startRect.origin.y,
+            width: startRect.maxX - newX,
+            height: newHeight
+        )
+    }
+
+    private func resizeFromBottomRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
+        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
+        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
+        return CGRect(
+            x: startRect.origin.x,
+            y: startRect.origin.y,
+            width: newWidth,
+            height: newHeight
+        )
+    }
+}
+
+private struct CornerHandle: View {
+    let position: CGPoint
+
+    var body: some View {
+        Circle()
+            .fill(Color.white)
+            .frame(width: Constants.cornerHandleSize, height: Constants.cornerHandleSize)
+            .overlay(
+                Circle()
+                    .stroke(Color.blue, lineWidth: 1.5)
+            )
+            .position(position)
+    }
 }
 
 // MARK: - AVCapturePhotoCaptureDelegate
