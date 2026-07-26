@@ -44,9 +44,10 @@ func ParseTSVLines(raw string) ([][]string, error) {
 			continue // 跳过空行
 		}
 
-		// 按制表符分割
+		// 模型偶发把分隔符写成字面量，先归一成真实制表符再分割。
+		line = normalizeTSVDelimiters(line)
+
 		fields := strings.Split(line, "\t")
-		// 清理每个字段的前后空白
 		cleanedFields := make([]string, 0, len(fields))
 		for _, field := range fields {
 			cleanedFields = append(cleanedFields, strings.TrimSpace(field))
@@ -59,4 +60,14 @@ func ParseTSVLines(raw string) ([][]string, error) {
 	}
 
 	return result, nil
+}
+
+func normalizeTSVDelimiters(line string) string {
+	replacer := strings.NewReplacer(
+		"<TAB>", "\t",
+		"<Tab>", "\t",
+		"<tab>", "\t",
+		`\t`, "\t",
+	)
+	return replacer.Replace(line)
 }

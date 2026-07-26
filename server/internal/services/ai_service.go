@@ -10,12 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"words/server/pkg/utils"
 )
 
 // TextAnalyzer 文本分析器接口
 type TextAnalyzer interface {
-	AnalyzeTextWithPrompt(ctx context.Context, text string, prompt string) ([][]string, error)
+	AnalyzeArticleText(ctx context.Context, text string) (ArticleAnalysisResult, error)
 	CompleteTextPrompt(ctx context.Context, prompt string) (string, error)
 }
 
@@ -70,27 +69,26 @@ type aiChatResponse struct {
 	} `json:"usage"`
 }
 
-func (s *AIService) AnalyzeTextWithPrompt(ctx context.Context, text string, prompt string) ([][]string, error) {
+func (s *AIService) AnalyzeArticleText(ctx context.Context, text string) (ArticleAnalysisResult, error) {
 	if strings.TrimSpace(s.apiKey) == "" {
-		return nil, fmt.Errorf("qwen api key not configured")
+		return ArticleAnalysisResult{}, fmt.Errorf("qwen api key not configured")
 	}
 
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil, fmt.Errorf("no text provided")
+		return ArticleAnalysisResult{}, fmt.Errorf("no text provided")
 	}
 
-	rawContent, err := s.chatCompletion(ctx, prompt+"\n\n正文：\n"+text, 4096, 0.1)
+	rawContent, err := s.chatCompletion(ctx, ArticleTextAnalysisPrompt+"\n\n正文：\n"+text, 4096, 0.1)
 	if err != nil {
-		return nil, err
+		return ArticleAnalysisResult{}, err
 	}
 
-	lines, err := utils.ParseTSVLines(rawContent)
+	result, err := ParseArticleAnalysisJSON(rawContent)
 	if err != nil {
-		return nil, fmt.Errorf("parse TSV format: %w", err)
+		return ArticleAnalysisResult{}, fmt.Errorf("parse article analysis json: %w", err)
 	}
-
-	return lines, nil
+	return result, nil
 }
 
 func (s *AIService) CompleteTextPrompt(ctx context.Context, prompt string) (string, error) {

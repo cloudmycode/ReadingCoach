@@ -91,7 +91,7 @@ struct ReviewTasksView: View {
                     accentColor: Color(red: 0.0, green: 0.4, blue: 1.0),
                     metadataText: "计划复习于 \(task.scheduledForDisplay)",
                     wordCountText: "\(task.wordCount) words",
-                    buttonTitle: "开始任务",
+                    buttonTitle: "去完成",
                     buttonColor: Color(red: 0.0, green: 0.4, blue: 1.0),
                     buttonAction: {
                         onOpenArticle(task.articleId, task.articleTitle)
@@ -170,16 +170,19 @@ private struct ReviewTaskCard: View {
                     .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
             }
 
-            Button(action: buttonAction) {
-                Text(buttonTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(buttonColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            HStack {
+                Spacer()
+                Button(action: buttonAction) {
+                    Text(buttonTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(buttonColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(buttonColor.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(18)
         .background(Color.white)

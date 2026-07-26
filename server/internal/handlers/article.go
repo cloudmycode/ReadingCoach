@@ -318,19 +318,14 @@ func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 		return
 	}
 
-	result, err := h.textAnalyzer.AnalyzeTextWithPrompt(
-		c.Request.Context(),
-		rawText,
-		services.ArticleTextAnalysisPrompt,
-	)
+	result, err := h.textAnalyzer.AnalyzeArticleText(c.Request.Context(), rawText)
 	if err != nil {
 		logger.Error("❌ 文本解析失败: %v", err)
 		jsonError(c, http.StatusInternalServerError, "解析文本失败: "+err.Error())
 		return
 	}
 
-	title, sentenceInputs := convertAIDataToArticle(result)
-	if len(sentenceInputs) == 0 {
+	if len(result.Sentences) == 0 {
 		jsonError(c, http.StatusBadRequest, "未识别到有效句子")
 		return
 	}
@@ -338,8 +333,8 @@ func (h *ArticleHandler) ProcessArticleText(c *gin.Context) {
 	articleID, err := h.articleService.SaveAnalyzedArticle(
 		c.Request.Context(),
 		userID,
-		title,
-		sentenceInputs,
+		result.Title,
+		result.Sentences,
 	)
 	if err != nil {
 		logger.Error("❌ 保存文章到数据库失败: %v", err)
@@ -554,35 +549,6 @@ func (h *ArticleHandler) AskSentenceQuestion(c *gin.Context) {
 // ============================================================================
 // 辅助函数
 // ============================================================================
-
-// convertAIDataToArticle 解析新版带标题格式，并兼容旧版英文/中文两列格式。
-func convertAIDataToArticle(data [][]string) (string, []services.ArticleSentenceInput) {
-	var title string
-	sentences := make([]services.ArticleSentenceInput, 0, len(data))
-	for _, line := range data {
-		if len(line) >= 2 && strings.EqualFold(strings.TrimSpace(line[0]), "TITLE") {
-			title = strings.TrimSpace(line[1])
-			continue
-		}
-		if len(line) >= 3 && strings.EqualFold(strings.TrimSpace(line[0]), "SENTENCE") {
-			sentences = append(sentences, services.ArticleSentenceInput{
-				Original:    strings.TrimSpace(line[1]),
-				Translation: strings.TrimSpace(line[2]),
-			})
-		} else if len(line) >= 2 {
-			sentences = append(sentences, services.ArticleSentenceInput{
-				Original:    strings.TrimSpace(line[0]),
-				Translation: strings.TrimSpace(line[1]),
-			})
-		} else if len(line) == 1 && strings.TrimSpace(line[0]) != "" {
-			sentences = append(sentences, services.ArticleSentenceInput{
-				Original:    strings.TrimSpace(line[0]),
-				Translation: "",
-			})
-		}
-	}
-	return title, sentences
-}
 
 func (h *ArticleHandler) parseSentenceRouteContext(c *gin.Context) (articleID int64, sentenceID int64, userID int, ok bool) {
 	encryptedArticleID := c.Param("id")

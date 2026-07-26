@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,9 +13,8 @@ import (
 const ArticleTextAnalysisPrompt = `阅读正文，先生成一个准确概括主题的简短标题，再把正文按顺序整理成适合学习的短句并逐句翻译成中文。
 标题尽量使用正文的主要语言，控制在 2 至 6 个词，不使用句号，不要直接照抄正文第一句。
 只处理用户提供的内容，不补写，不输出说明。
-仅输出 TSV：
-第一行格式：TITLE<TAB>标题
-后续每行格式：SENTENCE<TAB>英文原句<TAB>中文翻译`
+只返回一个 JSON 对象，不要 Markdown 代码块，不要额外说明。格式严格如下：
+{"title":"标题","sentences":[{"original":"英文原句","translation":"中文翻译"}]}`
 
 const WordExplainPromptTemplate = `解释用户在当前句子里点击的单词，如果在句子中该单词涉及到短语、固定搭配等，则一并解释。
 只返回 JSON：
@@ -26,8 +26,14 @@ const SentenceCoachPromptTemplate = `回答用户关于当前句子的问题。
 
 // ArticleSentenceInput 表示待写入 article_sentences 的句子
 type ArticleSentenceInput struct {
-	Original    string
-	Translation string
+	Original    string `json:"original"`
+	Translation string `json:"translation"`
+}
+
+// ArticleAnalysisResult 表示 AI 拆句/翻译后的结构化结果。
+type ArticleAnalysisResult struct {
+	Title     string                 `json:"title"`
+	Sentences []ArticleSentenceInput `json:"sentences"`
 }
 
 // ArticleService 负责将识别结果落库
@@ -48,34 +54,62 @@ func (s *ArticleService) validateService() error {
 	return nil
 }
 
-// parseArticleSentencesFromData 从结构化数据解析文章句子数据
-// data: 每行 [英文, 中文]
-func parseArticleSentencesFromData(data [][]string) ([]ArticleSentenceInput, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("no valid lines found")
+// ParseArticleAnalysisJSON 解析 AI 返回的文章分析 JSON。
+func ParseArticleAnalysisJSON(raw string) (ArticleAnalysisResult, error) {
+	trimmed := extractJSONObject(raw)
+	if trimmed == "" {
+		return ArticleAnalysisResult{}, fmt.Errorf("empty article analysis response")
 	}
 
-	sentences := make([]ArticleSentenceInput, 0, len(data))
-	for _, line := range data {
-		if len(line) >= 2 {
-			sentences = append(sentences, ArticleSentenceInput{
-				Original:    line[0],
-				Translation: line[1],
-			})
-		} else if len(line) == 1 && line[0] != "" {
-			// 只有一列，可能是格式错误，但尝试使用
-			sentences = append(sentences, ArticleSentenceInput{
-				Original:    line[0],
-				Translation: "",
-			})
+	var result ArticleAnalysisResult
+	if err := json.Unmarshal([]byte(trimmed), &result); err != nil {
+		return ArticleAnalysisResult{}, fmt.Errorf("decode article analysis json: %w", err)
+	}
+
+	result.Title = strings.TrimSpace(result.Title)
+	cleaned := make([]ArticleSentenceInput, 0, len(result.Sentences))
+	for _, sentence := range result.Sentences {
+		original := strings.TrimSpace(sentence.Original)
+		translation := strings.TrimSpace(sentence.Translation)
+		if original == "" {
+			continue
+		}
+		cleaned = append(cleaned, ArticleSentenceInput{
+			Original:    original,
+			Translation: translation,
+		})
+	}
+	result.Sentences = cleaned
+
+	if len(result.Sentences) == 0 {
+		return ArticleAnalysisResult{}, fmt.Errorf("no valid sentences found")
+	}
+	return result, nil
+}
+
+func extractJSONObject(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+
+	// 兼容模型偶发包裹的 ```json ... ```
+	if strings.HasPrefix(trimmed, "```") {
+		trimmed = strings.TrimPrefix(trimmed, "```json")
+		trimmed = strings.TrimPrefix(trimmed, "```JSON")
+		trimmed = strings.TrimPrefix(trimmed, "```")
+		trimmed = strings.TrimSpace(trimmed)
+		if idx := strings.LastIndex(trimmed, "```"); idx >= 0 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
 		}
 	}
 
-	if len(sentences) == 0 {
-		return nil, fmt.Errorf("no valid sentences found")
+	start := strings.Index(trimmed, "{")
+	end := strings.LastIndex(trimmed, "}")
+	if start >= 0 && end > start {
+		return trimmed[start : end+1]
 	}
-
-	return sentences, nil
+	return trimmed
 }
 
 // SaveAnalyzedArticle 将 AI 识别结果写入 articles 和 article_sentences
