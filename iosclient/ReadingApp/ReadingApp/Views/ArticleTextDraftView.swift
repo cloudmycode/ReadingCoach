@@ -76,10 +76,10 @@ struct ArticleTextDraftView: View {
     
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("拍照后先框选文字区域，再识别并整理英文正文。")
+            Text("拍照后拖动四角框选文字（可拉成梯形），矫正后再识别。")
                 .font(.headline)
                 .foregroundColor(.primary)
-            Text("框选裁剪后发给服务器识别；你可以继续追加拍照内容，或直接编辑识别结果。确认无误后再提交拆句、翻译和音频生成。")
+            Text("四角透视矫正后发给服务器识别；你可以继续追加拍照内容，或直接编辑识别结果。确认无误后再提交拆句、翻译和音频生成。")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

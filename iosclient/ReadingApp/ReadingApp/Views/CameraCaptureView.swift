@@ -4,7 +4,7 @@
 //
 //  Created by GPT-5.1 Codex on 2025/11/27.
 //
-//  单张拍照组件：拍摄 → 框选文字区域裁剪 → 云端识别后返回文字编辑页。
+//  单张拍照组件：拍摄 → 四角框选透视矫正 → 云端识别后返回文字编辑页。
 
 import SwiftUI
 import AVFoundation
@@ -23,8 +23,6 @@ private enum Constants {
     static let captureButtonSize: CGFloat = 80
     static let captureButtonInnerSize: CGFloat = 64
     static let cornerHandleSize: CGFloat = 22
-    /// 归一化裁剪框最小边长（相对图片宽/高）
-    static let minCropSize: CGFloat = 0.08
     static let bottomButtonHeight: CGFloat = 100
 }
 
@@ -311,15 +309,29 @@ final class CameraViewModel: NSObject, ObservableObject {
         isShowingPreview = false
     }
 
-    /// 按像素矩形裁剪当前预览图（原点在左上角）。始终基于当前显示图裁剪。
-    func cropPhoto(_ cropRect: CGRect) {
-        guard let cgImage = photo?.image.cgImage else { return }
-        let imageBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
-        let pixelRect = cropRect.integral.intersection(imageBounds)
-        guard pixelRect.width > 0,
-              pixelRect.height > 0,
-              let croppedImage = cgImage.cropping(to: pixelRect) else { return }
-        photo?.image = UIImage(cgImage: croppedImage, scale: 1, orientation: .up)
+    /// 按归一化四边形透视矫正当前预览图（角点顺序：左上→右上→右下→左下）。
+    /// - Returns: 是否矫正成功。
+    @discardableResult
+    func cropPhoto(_ quad: NormalizedQuadCorners) -> Bool {
+        guard let image = photo?.image, let cgImage = image.cgImage else { return false }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let topLeft = CGPoint(x: quad.topLeft.x * width, y: quad.topLeft.y * height)
+        let topRight = CGPoint(x: quad.topRight.x * width, y: quad.topRight.y * height)
+        let bottomRight = CGPoint(x: quad.bottomRight.x * width, y: quad.bottomRight.y * height)
+        let bottomLeft = CGPoint(x: quad.bottomLeft.x * width, y: quad.bottomLeft.y * height)
+
+        guard let corrected = image.perspectiveCorrected(
+            topLeft: topLeft,
+            topRight: topRight,
+            bottomRight: bottomRight,
+            bottomLeft: bottomLeft
+        ) else {
+            alertMessage = "四角选区无效，请调整为不交叉的凸四边形后重试"
+            return false
+        }
+        photo?.image = corrected
+        return true
     }
 
     /// 恢复拍照原图，供重新框选裁剪。
@@ -649,20 +661,47 @@ final class CameraService {
     }
 }
 
-// MARK: - Preview View（拍完后先框选文字区域，裁剪后再识别）
+// MARK: - 归一化四角（UIKit，原点左上，0~1）
+
+struct NormalizedQuadCorners: Equatable {
+    var topLeft: CGPoint
+    var topRight: CGPoint
+    var bottomRight: CGPoint
+    var bottomLeft: CGPoint
+
+    static let `default` = NormalizedQuadCorners(
+        topLeft: CGPoint(x: 0.08, y: 0.12),
+        topRight: CGPoint(x: 0.92, y: 0.12),
+        bottomRight: CGPoint(x: 0.92, y: 0.88),
+        bottomLeft: CGPoint(x: 0.08, y: 0.88)
+    )
+
+    mutating func clampToUnitSquare() {
+        topLeft = Self.clamp(topLeft)
+        topRight = Self.clamp(topRight)
+        bottomRight = Self.clamp(bottomRight)
+        bottomLeft = Self.clamp(bottomLeft)
+    }
+
+    private static func clamp(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(p.x, 0), 1), y: min(max(p.y, 0), 1))
+    }
+}
+
+// MARK: - Preview View（拍完后先框选文字区域，透视矫正后再识别）
 
 private struct PhotoPreviewView: View {
     @Binding var photo: CapturedPhoto?
     let isProcessing: Bool
     let onRetake: () -> Void
     let onRotate: (_ updatingOriginal: Bool) -> Void
-    let onCrop: (CGRect) -> Void
+    let onCrop: (NormalizedQuadCorners) -> Bool
     let onRestoreOriginal: () -> Void
     let onSubmit: () -> Void
 
-    /// 归一化裁剪框（相对图片显示区域，0~1）
-    @State private var normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
-    /// 已完成裁剪：隐藏选区框，留在本页完整展示裁剪结果并等待识别
+    /// 归一化四角选区（相对图片显示区域）
+    @State private var quadCorners = NormalizedQuadCorners.default
+    /// 已完成裁剪：隐藏选区框，留在本页完整展示矫正结果并等待识别
     @State private var hasAppliedCrop = false
     
     var body: some View {
@@ -692,8 +731,8 @@ private struct PhotoPreviewView: View {
                                 .id("\(Int(imageSize.width))x\(Int(imageSize.height))-\(hasAppliedCrop)")
 
                             if !hasAppliedCrop {
-                                CropOverlay(
-                                    normalizedRect: $normalizedCropRect,
+                                QuadCropOverlay(
+                                    corners: $quadCorners,
                                     viewSize: displaySize
                                 )
                                 .frame(width: displaySize.width, height: displaySize.height)
@@ -709,7 +748,7 @@ private struct PhotoPreviewView: View {
                 }
 
                 VStack(spacing: 0) {
-                    Text(hasAppliedCrop ? "已裁剪，可识别或重新裁剪" : "拖动边角框选文字区域")
+                    Text(hasAppliedCrop ? "已矫正，可识别或重新框选" : "拖动四角框选文字（可拉成梯形）")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
@@ -780,9 +819,9 @@ private struct PhotoPreviewView: View {
                 .disabled(isProcessing)
             } else {
                 Button {
-                    // 框选阶段同步转原图；旋转后重置选框，避免与新方向错位
+                    // 框选阶段同步转原图；旋转后重置四角，避免与新方向错位
                     onRotate(true)
-                    normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
+                    quadCorners = .default
                 } label: {
                     actionLabel("旋转", systemImage: "rotate.left", color: .white)
                 }
@@ -809,25 +848,18 @@ private struct PhotoPreviewView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 只裁剪并留在本页：完整展示裁剪结果（不拉伸、不裁边），等待识别。
+    /// 透视矫正并留在本页：完整展示结果，等待识别。
     private func applyCropAndStay() {
-        guard let image = photo?.image else { return }
-        let size = pixelSize(of: image)
-        onCrop(CGRect(
-            x: normalizedCropRect.minX * size.width,
-            y: normalizedCropRect.minY * size.height,
-            width: normalizedCropRect.width * size.width,
-            height: normalizedCropRect.height * size.height
-        ))
+        guard onCrop(quadCorners) else { return }
         hasAppliedCrop = true
-        normalizedCropRect = CGRect(x: 0.05, y: 0.05, width: 0.9, height: 0.9)
+        quadCorners = .default
     }
 
     /// 恢复原图并重新进入框选。
     private func beginRecrop() {
         onRestoreOriginal()
         hasAppliedCrop = false
-        normalizedCropRect = CGRect(x: 0.08, y: 0.12, width: 0.84, height: 0.76)
+        quadCorners = .default
     }
 
     private func pixelSize(of image: UIImage) -> CGSize {
@@ -842,62 +874,58 @@ private struct PhotoPreviewView: View {
     }
 }
 
-// MARK: - Crop Overlay
+// MARK: - Quad Crop Overlay（四角独立拖动）
 
-private struct CropOverlay: View {
-    @Binding var normalizedRect: CGRect
+private struct QuadCropOverlay: View {
+    @Binding var corners: NormalizedQuadCorners
     let viewSize: CGSize
 
-    @State private var dragStartRect: CGRect = .zero
+    @State private var dragStartCorners = NormalizedQuadCorners.default
     @State private var isDragging = false
     @State private var dragType: DragType = .none
 
     enum DragType {
         case none
         case move
-        case resizeTopLeft
-        case resizeTopRight
-        case resizeBottomLeft
-        case resizeBottomRight
+        case topLeft
+        case topRight
+        case bottomRight
+        case bottomLeft
     }
 
     private let cornerHandleSize = Constants.cornerHandleSize
 
-    private var cropFrame: CGRect {
-        CGRect(
-            x: normalizedRect.origin.x * viewSize.width,
-            y: normalizedRect.origin.y * viewSize.height,
-            width: normalizedRect.width * viewSize.width,
-            height: normalizedRect.height * viewSize.height
-        )
-    }
-
-    private var topLeft: CGPoint { CGPoint(x: cropFrame.minX, y: cropFrame.minY) }
-    private var topRight: CGPoint { CGPoint(x: cropFrame.maxX, y: cropFrame.minY) }
-    private var bottomLeft: CGPoint { CGPoint(x: cropFrame.minX, y: cropFrame.maxY) }
-    private var bottomRight: CGPoint { CGPoint(x: cropFrame.maxX, y: cropFrame.maxY) }
+    private var tl: CGPoint { point(corners.topLeft) }
+    private var tr: CGPoint { point(corners.topRight) }
+    private var br: CGPoint { point(corners.bottomRight) }
+    private var bl: CGPoint { point(corners.bottomLeft) }
 
     var body: some View {
         ZStack {
-            // 半透明遮罩，中间镂空选区
-            Color.black.opacity(0.55)
-                .overlay(
-                    Rectangle()
-                        .frame(width: cropFrame.width, height: cropFrame.height)
-                        .position(x: cropFrame.midX, y: cropFrame.midY)
-                        .blendMode(.destinationOut)
-                )
-                .compositingGroup()
+            // 半透明遮罩，中间镂空四边形
+            Path { path in
+                path.addRect(CGRect(origin: .zero, size: viewSize))
+                path.move(to: tl)
+                path.addLine(to: tr)
+                path.addLine(to: br)
+                path.addLine(to: bl)
+                path.closeSubpath()
+            }
+            .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
 
-            Rectangle()
-                .stroke(Color.white, lineWidth: 2)
-                .frame(width: cropFrame.width, height: cropFrame.height)
-                .position(x: cropFrame.midX, y: cropFrame.midY)
+            Path { path in
+                path.move(to: tl)
+                path.addLine(to: tr)
+                path.addLine(to: br)
+                path.addLine(to: bl)
+                path.closeSubpath()
+            }
+            .stroke(Color.white, lineWidth: 2)
 
-            CornerHandle(position: topLeft)
-            CornerHandle(position: topRight)
-            CornerHandle(position: bottomLeft)
-            CornerHandle(position: bottomRight)
+            CornerHandle(position: tl)
+            CornerHandle(position: tr)
+            CornerHandle(position: br)
+            CornerHandle(position: bl)
         }
         .contentShape(Rectangle())
         .gesture(
@@ -905,7 +933,7 @@ private struct CropOverlay: View {
                 .onChanged { value in
                     if !isDragging {
                         isDragging = true
-                        dragStartRect = normalizedRect
+                        dragStartCorners = corners
                         dragType = detectDragType(at: value.startLocation)
                     }
 
@@ -913,23 +941,36 @@ private struct CropOverlay: View {
                     let deltaY = value.translation.height / max(viewSize.height, 1)
 
                     switch dragType {
-                    case .move:
-                        let newX = max(0, min(1 - dragStartRect.width, dragStartRect.origin.x + deltaX))
-                        let newY = max(0, min(1 - dragStartRect.height, dragStartRect.origin.y + deltaY))
-                        normalizedRect = CGRect(
-                            x: newX,
-                            y: newY,
-                            width: dragStartRect.width,
-                            height: dragStartRect.height
+                    case .topLeft:
+                        corners.topLeft = clamped(
+                            CGPoint(
+                                x: dragStartCorners.topLeft.x + deltaX,
+                                y: dragStartCorners.topLeft.y + deltaY
+                            )
                         )
-                    case .resizeTopLeft:
-                        normalizedRect = resizeFromTopLeft(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
-                    case .resizeTopRight:
-                        normalizedRect = resizeFromTopRight(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
-                    case .resizeBottomLeft:
-                        normalizedRect = resizeFromBottomLeft(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
-                    case .resizeBottomRight:
-                        normalizedRect = resizeFromBottomRight(startRect: dragStartRect, deltaX: deltaX, deltaY: deltaY)
+                    case .topRight:
+                        corners.topRight = clamped(
+                            CGPoint(
+                                x: dragStartCorners.topRight.x + deltaX,
+                                y: dragStartCorners.topRight.y + deltaY
+                            )
+                        )
+                    case .bottomRight:
+                        corners.bottomRight = clamped(
+                            CGPoint(
+                                x: dragStartCorners.bottomRight.x + deltaX,
+                                y: dragStartCorners.bottomRight.y + deltaY
+                            )
+                        )
+                    case .bottomLeft:
+                        corners.bottomLeft = clamped(
+                            CGPoint(
+                                x: dragStartCorners.bottomLeft.x + deltaX,
+                                y: dragStartCorners.bottomLeft.y + deltaY
+                            )
+                        )
+                    case .move:
+                        corners = movedQuad(from: dragStartCorners, deltaX: deltaX, deltaY: deltaY)
                     case .none:
                         break
                     }
@@ -941,15 +982,21 @@ private struct CropOverlay: View {
         )
     }
 
-    private func detectDragType(at location: CGPoint) -> DragType {
-        // 触控区域略大于视觉手柄，便于手指操作
-        let handleRadius: CGFloat = max(cornerHandleSize, 36) / 2
+    private func point(_ normalized: CGPoint) -> CGPoint {
+        CGPoint(x: normalized.x * viewSize.width, y: normalized.y * viewSize.height)
+    }
 
-        if distance(location, topLeft) < handleRadius { return .resizeTopLeft }
-        if distance(location, topRight) < handleRadius { return .resizeTopRight }
-        if distance(location, bottomLeft) < handleRadius { return .resizeBottomLeft }
-        if distance(location, bottomRight) < handleRadius { return .resizeBottomRight }
-        if cropFrame.contains(location) { return .move }
+    private func clamped(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(p.x, 0), 1), y: min(max(p.y, 0), 1))
+    }
+
+    private func detectDragType(at location: CGPoint) -> DragType {
+        let handleRadius: CGFloat = max(cornerHandleSize, 40) / 2
+        if distance(location, tl) < handleRadius { return .topLeft }
+        if distance(location, tr) < handleRadius { return .topRight }
+        if distance(location, br) < handleRadius { return .bottomRight }
+        if distance(location, bl) < handleRadius { return .bottomLeft }
+        if pointInQuad(location, tl: tl, tr: tr, br: br, bl: bl) { return .move }
         return .none
     }
 
@@ -957,48 +1004,39 @@ private struct CropOverlay: View {
         hypot(p1.x - p2.x, p1.y - p2.y)
     }
 
-    private func resizeFromTopLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
-        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
-        return CGRect(
-            x: newX,
-            y: newY,
-            width: startRect.maxX - newX,
-            height: startRect.maxY - newY
+    /// 平移整个四边形，并保证四角仍在 [0,1] 内。
+    private func movedQuad(from start: NormalizedQuadCorners, deltaX: CGFloat, deltaY: CGFloat) -> NormalizedQuadCorners {
+        let points = [start.topLeft, start.topRight, start.bottomRight, start.bottomLeft]
+        let minX = points.map(\.x).min() ?? 0
+        let maxX = points.map(\.x).max() ?? 1
+        let minY = points.map(\.y).min() ?? 0
+        let maxY = points.map(\.y).max() ?? 1
+        let clampedDX = min(max(deltaX, -minX), 1 - maxX)
+        let clampedDY = min(max(deltaY, -minY), 1 - maxY)
+        return NormalizedQuadCorners(
+            topLeft: CGPoint(x: start.topLeft.x + clampedDX, y: start.topLeft.y + clampedDY),
+            topRight: CGPoint(x: start.topRight.x + clampedDX, y: start.topRight.y + clampedDY),
+            bottomRight: CGPoint(x: start.bottomRight.x + clampedDX, y: start.bottomRight.y + clampedDY),
+            bottomLeft: CGPoint(x: start.bottomLeft.x + clampedDX, y: start.bottomLeft.y + clampedDY)
         )
     }
 
-    private func resizeFromTopRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newY = max(0, min(startRect.maxY - Constants.minCropSize, startRect.origin.y + deltaY))
-        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
-        return CGRect(
-            x: startRect.origin.x,
-            y: newY,
-            width: newWidth,
-            height: startRect.maxY - newY
-        )
+    private func pointInQuad(_ p: CGPoint, tl: CGPoint, tr: CGPoint, br: CGPoint, bl: CGPoint) -> Bool {
+        // 拆成两个三角形判断
+        return pointInTriangle(p, a: tl, b: tr, c: br) || pointInTriangle(p, a: tl, b: br, c: bl)
     }
 
-    private func resizeFromBottomLeft(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newX = max(0, min(startRect.maxX - Constants.minCropSize, startRect.origin.x + deltaX))
-        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
-        return CGRect(
-            x: newX,
-            y: startRect.origin.y,
-            width: startRect.maxX - newX,
-            height: newHeight
-        )
+    private func pointInTriangle(_ p: CGPoint, a: CGPoint, b: CGPoint, c: CGPoint) -> Bool {
+        let d1 = sign(p, a, b)
+        let d2 = sign(p, b, c)
+        let d3 = sign(p, c, a)
+        let hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0)
+        let hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0)
+        return !(hasNeg && hasPos)
     }
 
-    private func resizeFromBottomRight(startRect: CGRect, deltaX: CGFloat, deltaY: CGFloat) -> CGRect {
-        let newWidth = max(Constants.minCropSize, min(startRect.width + deltaX, 1 - startRect.origin.x))
-        let newHeight = max(Constants.minCropSize, min(startRect.height + deltaY, 1 - startRect.origin.y))
-        return CGRect(
-            x: startRect.origin.x,
-            y: startRect.origin.y,
-            width: newWidth,
-            height: newHeight
-        )
+    private func sign(_ p1: CGPoint, _ p2: CGPoint, _ p3: CGPoint) -> CGFloat {
+        (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
     }
 }
 

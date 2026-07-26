@@ -42,8 +42,76 @@ extension UIImage {
         }
     }
 
+    /// 将任意四边形（UIKit 像素坐标，原点左上）透视矫正为正矩形。
+    /// 角点顺序：左上 → 右上 → 右下 → 左下。
+    func perspectiveCorrected(
+        topLeft: CGPoint,
+        topRight: CGPoint,
+        bottomRight: CGPoint,
+        bottomLeft: CGPoint
+    ) -> UIImage? {
+        guard let cgImage else { return nil }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        guard width > 1, height > 1 else { return nil }
+
+        let uiPoints = [topLeft, topRight, bottomRight, bottomLeft].map {
+            CGPoint(
+                x: min(max($0.x, 0), width),
+                y: min(max($0.y, 0), height)
+            )
+        }
+        guard Self.isConvexQuadrilateral(uiPoints) else { return nil }
+
+        // CIImage 坐标系原点在左下，Y 轴向上；UIKit 原点在左上。
+        let toCI: (CGPoint) -> CGPoint = { CGPoint(x: $0.x, y: height - $0.y) }
+        let ciTL = toCI(uiPoints[0])
+        let ciTR = toCI(uiPoints[1])
+        let ciBR = toCI(uiPoints[2])
+        let ciBL = toCI(uiPoints[3])
+
+        let ciImage = CIImage(cgImage: cgImage)
+        guard let filter = CIFilter(name: "CIPerspectiveCorrection") else { return nil }
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgPoint: ciTL), forKey: "inputTopLeft")
+        filter.setValue(CIVector(cgPoint: ciTR), forKey: "inputTopRight")
+        filter.setValue(CIVector(cgPoint: ciBR), forKey: "inputBottomRight")
+        filter.setValue(CIVector(cgPoint: ciBL), forKey: "inputBottomLeft")
+
+        guard let output = filter.outputImage else { return nil }
+        return render(output)
+    }
+
+    /// 四点是否为凸四边形且面积足够（防止交叉/退化）。
+    private static func isConvexQuadrilateral(_ points: [CGPoint]) -> Bool {
+        guard points.count == 4 else { return false }
+        // 叉积符号应一致
+        var sign: CGFloat = 0
+        for i in 0..<4 {
+            let a = points[i]
+            let b = points[(i + 1) % 4]
+            let c = points[(i + 2) % 4]
+            let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+            if abs(cross) < 1e-3 { return false }
+            if sign == 0 {
+                sign = cross > 0 ? 1 : -1
+            } else if cross * sign < 0 {
+                return false
+            }
+        }
+        // 面积（鞋带公式）不能太小
+        var area: CGFloat = 0
+        for i in 0..<4 {
+            let p = points[i]
+            let q = points[(i + 1) % 4]
+            area += p.x * q.y - q.x * p.y
+        }
+        return abs(area) > 100
+    }
+
     private func render(_ source: CIImage) -> UIImage? {
         let extent = source.extent.integral
+        guard extent.width > 1, extent.height > 1 else { return nil }
         let normalized = source.transformed(
             by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
         )
