@@ -7,7 +7,7 @@
 #
 # 环境变量：
 #   REMOTE_HOST        SSH 目标，默认 root@39.105.229.91
-#   REMOTE_STATIC_DIR  服务器静态目录，默认 /var/www/readingcoach-console
+#   REMOTE_STATIC_DIR  服务器静态目录，默认 /home/website/readingcoach.jingjiangke.com/www/console
 #   SSH_PORT           SSH 端口，默认 22
 #   SYNC_NGINX         设为 1 时同步 server/deploy/nginx.readingcoach.conf 并重载 nginx
 #
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-root@39.105.229.91}"
-REMOTE_STATIC_DIR="${REMOTE_STATIC_DIR:-/var/www/readingcoach-console}"
+REMOTE_STATIC_DIR="${REMOTE_STATIC_DIR:-/home/website/readingcoach.jingjiangke.com/www/console}"
 SSH_PORT="${SSH_PORT:-22}"
 SYNC_NGINX="${SYNC_NGINX:-0}"
 
