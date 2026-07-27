@@ -54,6 +54,21 @@ services:
       retries: 5
       start_period: 20s
 
+  adminer:
+    image: adminer:4
+    container_name: readingcoach-adminer
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+      ADMINER_DESIGN: pepa-linha
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 浏览器打开 http://localhost:8081 ；登录页系统选 MySQL，服务器填 mysql，用户名密码在网页输入
+      - "${ADMINER_PORT:-8081}:8080"
+
 volumes:
   mysql-data:
   server-attachments:
