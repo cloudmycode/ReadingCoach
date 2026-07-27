@@ -17,6 +17,12 @@ final class WordBookViewModel: ObservableObject {
     @Published var toastMessage: String?
 
     private var playbackTask: Task<Void, Never>?
+    private var playbackOptions = WordBookPlaybackOptions(
+        playWord: false,
+        playWordTranslation: false,
+        playSentence: false,
+        playSentenceTranslation: false
+    )
 
     var displayedEntries: [WordBookEntry] {
         guard let filterArticleId, !filterArticleId.isEmpty else {
@@ -101,11 +107,11 @@ final class WordBookViewModel: ObservableObject {
         }
     }
 
-    func togglePlaybackAll() {
+    func togglePlaybackAll(options: WordBookPlaybackOptions) {
         if isPlayingAll {
             stopPlaybackAll()
         } else {
-            startPlaybackAll()
+            startPlaybackAll(options: options)
         }
     }
 
@@ -117,9 +123,10 @@ final class WordBookViewModel: ObservableObject {
         isPlayingSentence = false
     }
 
-    private func startPlaybackAll() {
-        guard !displayedEntries.isEmpty else { return }
+    private func startPlaybackAll(options: WordBookPlaybackOptions) {
+        guard !displayedEntries.isEmpty, options.hasAnyEnabled else { return }
         stopPlaybackAll()
+        playbackOptions = options
         isPlayingAll = true
         playbackTask = Task { [weak self] in
             await self?.playAllEntries()
@@ -135,57 +142,76 @@ final class WordBookViewModel: ObservableObject {
         }
 
         let playlist = displayedEntries
+        let options = playbackOptions
         for entry in playlist {
             if Task.isCancelled { break }
-
             selectEntry(entry)
-
-            let word = entry.word.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !word.isEmpty {
-                do {
-                    try await ArticleAudioManager.shared.speak(
-                        sentenceId: nil,
-                        text: word,
-                        type: .original,
-                        style: .focusedSentence
-                    )
-                } catch {
-                    if Task.isCancelled { break }
-                    toastMessage = error.localizedDescription
-                    break
-                }
-            }
-
-            if Task.isCancelled { break }
-
-            let sentence = entry.sentenceOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sentence.isEmpty {
-                isPlayingSentence = true
-                do {
-                    try await ArticleAudioManager.shared.speak(
-                        sentenceId: entry.sentenceId,
-                        text: sentence,
-                        type: .original,
-                        style: .focusedSentence
-                    )
-                } catch {
-                    isPlayingSentence = false
-                    if Task.isCancelled { break }
-                    toastMessage = error.localizedDescription
-                    break
-                }
-                isPlayingSentence = false
-            }
+            await playEntry(entry, options: options)
         }
     }
 
-    func playSentence(_ entry: WordBookEntry) async {
+    private func playEntry(_ entry: WordBookEntry, options: WordBookPlaybackOptions) async {
+        if options.playWord {
+            guard !Task.isCancelled else { return }
+            await speakWord(entry.word)
+        }
+        if options.playWordTranslation {
+            guard !Task.isCancelled else { return }
+            await speakWordTranslation(for: entry)
+        }
+        if options.playSentence {
+            guard !Task.isCancelled else { return }
+            await speakSentence(entry)
+        }
+        if options.playSentenceTranslation {
+            guard !Task.isCancelled else { return }
+            await speakSentenceTranslation(for: entry)
+        }
+    }
+
+    func playSentence(_ entry: WordBookEntry, options: WordBookPlaybackOptions) async {
         stopPlaybackAll()
+        selectEntry(entry)
+        await playEntry(entry, options: options)
+    }
+
+    private func speakWord(_ word: String) async {
+        let text = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            try await ArticleAudioManager.shared.speak(
+                sentenceId: nil,
+                text: text,
+                type: .original,
+                style: .focusedSentence
+            )
+        } catch {
+            if Task.isCancelled { return }
+            toastMessage = error.localizedDescription
+        }
+    }
+
+    private func speakWordTranslation(for entry: WordBookEntry) async {
+        let spoken = wordTranslationText(for: entry)
+        guard !spoken.isEmpty else { return }
+        do {
+            try await ArticleAudioManager.shared.speak(
+                sentenceId: nil,
+                text: spoken,
+                type: .translation,
+                style: .focusedSentence
+            )
+        } catch {
+            if Task.isCancelled { return }
+            toastMessage = error.localizedDescription
+        }
+    }
+
+    private func speakSentence(_ entry: WordBookEntry) async {
         let text = entry.sentenceOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         isPlayingSentence = true
         defer { isPlayingSentence = false }
-        selectEntry(entry)
         do {
             try await ArticleAudioManager.shared.speak(
                 sentenceId: entry.sentenceId,
@@ -194,11 +220,36 @@ final class WordBookViewModel: ObservableObject {
                 style: .focusedSentence
             )
         } catch {
+            if Task.isCancelled { return }
             toastMessage = error.localizedDescription
         }
     }
 
-    func explainWord(in entry: WordBookEntry, word: String, playTranslation: Bool) async {
+    private func speakSentenceTranslation(for entry: WordBookEntry) async {
+        let text = entry.sentenceTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            try await ArticleAudioManager.shared.speak(
+                sentenceId: entry.sentenceId,
+                text: text,
+                type: .translation,
+                style: .focusedSentence
+            )
+        } catch {
+            if Task.isCancelled { return }
+            toastMessage = error.localizedDescription
+        }
+    }
+
+    private func wordTranslationText(for entry: WordBookEntry) -> String {
+        entry.meaning.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func wordTranslationText(meaning: String) -> String {
+        meaning.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func explainWord(in entry: WordBookEntry, word: String, options: WordBookPlaybackOptions) async {
         stopPlaybackAll()
         let query = word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
@@ -211,12 +262,9 @@ final class WordBookViewModel: ObservableObject {
         isLoadingExplanation = true
 
         do {
-            try await ArticleAudioManager.shared.speak(
-                sentenceId: nil,
-                text: query,
-                type: .original,
-                style: .focusedSentence
-            )
+            if options.playWord {
+                await speakWord(query)
+            }
 
             let response = try await ArticleAPI.shared.explainWord(
                 articleId: entry.articleId,
@@ -251,11 +299,8 @@ final class WordBookViewModel: ObservableObject {
 
             NotificationCenter.default.post(name: .wordBookDidChange, object: nil)
 
-            if playTranslation {
-                let spoken = [response.meaning, response.tip]
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "，")
+            if options.playWordTranslation {
+                let spoken = wordTranslationText(meaning: response.meaning)
                 if !spoken.isEmpty {
                     try? await ArticleAudioManager.shared.speak(
                         sentenceId: nil,

@@ -282,9 +282,7 @@ struct WordReviewSessionView: View {
     let onOpenArticle: (String, String) -> Void
 
     @AppStorage("reviewAutoPlayWord") private var autoPlayWord = false
-    @AppStorage("reviewAutoPlayWordTranslation") private var autoPlayWordTranslation = false
     @AppStorage("reviewAutoPlaySentence") private var autoPlaySentence = false
-    @AppStorage("reviewAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false
     @State private var autoPlayTask: Task<Void, Never>?
 
     var body: some View {
@@ -337,10 +335,8 @@ struct WordReviewSessionView: View {
             Spacer()
 
             Menu {
-                Toggle("读单词", isOn: $autoPlayWord)
-                Toggle("读单词翻译", isOn: $autoPlayWordTranslation)
-                Toggle("读句子", isOn: $autoPlaySentence)
-                Toggle("读句子翻译", isOn: $autoPlaySentenceTranslation)
+                Toggle("自动读单词", isOn: $autoPlayWord)
+                Toggle("自动读句子", isOn: $autoPlaySentence)
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 16, weight: .semibold))
@@ -358,7 +354,7 @@ struct WordReviewSessionView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 12)
 
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 Text(task.word)
                     .font(.system(size: 42, weight: .bold))
                     .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
@@ -378,6 +374,7 @@ struct WordReviewSessionView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("播放单词")
             }
+            .frame(maxWidth: .infinity)
 
             Button {
                 cancelAutoPlay()
@@ -544,32 +541,22 @@ struct WordReviewSessionView: View {
     private func scheduleAutoPlay() {
         guard !viewModel.isSessionFinished,
               let task = viewModel.currentSessionTask,
-              autoPlayWord || autoPlayWordTranslation || autoPlaySentence || autoPlaySentenceTranslation else {
+              autoPlayWord || autoPlaySentence else {
             cancelAutoPlay()
             return
         }
 
         cancelAutoPlay()
         let shouldPlayWord = autoPlayWord
-        let shouldPlayWordTranslation = autoPlayWordTranslation
         let shouldPlaySentence = autoPlaySentence
-        let shouldPlaySentenceTranslation = autoPlaySentenceTranslation
         autoPlayTask = Task {
             if shouldPlayWord {
                 guard !Task.isCancelled else { return }
                 await playWord(task)
             }
-            if shouldPlayWordTranslation {
-                guard !Task.isCancelled else { return }
-                await playWordTranslation(task)
-            }
             if shouldPlaySentence {
                 guard !Task.isCancelled else { return }
                 await playSentence(task)
-            }
-            if shouldPlaySentenceTranslation {
-                guard !Task.isCancelled else { return }
-                await playSentenceTranslation(task)
             }
         }
     }
@@ -589,36 +576,11 @@ struct WordReviewSessionView: View {
         )
     }
 
-    private func playWordTranslation(_ task: WordReviewTaskItem) async {
-        let spoken = [task.meaning, task.tip]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "，")
-        guard !spoken.isEmpty else { return }
-        try? await ArticleAudioManager.shared.speak(
-            sentenceId: nil,
-            text: spoken,
-            type: .translation,
-            style: .focusedSentence
-        )
-    }
-
     private func playSentence(_ task: WordReviewTaskItem) async {
         try? await ArticleAudioManager.shared.speak(
             sentenceId: task.sentenceId,
             text: task.sentenceOriginal,
             type: .original,
-            style: .focusedSentence
-        )
-    }
-
-    private func playSentenceTranslation(_ task: WordReviewTaskItem) async {
-        let text = task.sentenceTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        try? await ArticleAudioManager.shared.speak(
-            sentenceId: task.sentenceId,
-            text: text,
-            type: .translation,
             style: .focusedSentence
         )
     }
