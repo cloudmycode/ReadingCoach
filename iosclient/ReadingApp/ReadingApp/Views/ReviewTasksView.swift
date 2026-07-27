@@ -282,7 +282,9 @@ struct WordReviewSessionView: View {
     let onOpenArticle: (String, String) -> Void
 
     @AppStorage("reviewAutoPlayWord") private var autoPlayWord = false
+    @AppStorage("reviewAutoPlayWordTranslation") private var autoPlayWordTranslation = false
     @AppStorage("reviewAutoPlaySentence") private var autoPlaySentence = false
+    @AppStorage("reviewAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false
     @State private var autoPlayTask: Task<Void, Never>?
 
     var body: some View {
@@ -335,8 +337,10 @@ struct WordReviewSessionView: View {
             Spacer()
 
             Menu {
-                Toggle("自动播放单词", isOn: $autoPlayWord)
-                Toggle("自动播放句子", isOn: $autoPlaySentence)
+                Toggle("读单词", isOn: $autoPlayWord)
+                Toggle("读单词翻译", isOn: $autoPlayWordTranslation)
+                Toggle("读句子", isOn: $autoPlaySentence)
+                Toggle("读句子翻译", isOn: $autoPlaySentenceTranslation)
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 16, weight: .semibold))
@@ -354,26 +358,26 @@ struct WordReviewSessionView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 12)
 
-            Text(task.word)
-                .font(.system(size: 42, weight: .bold))
-                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-                .multilineTextAlignment(.center)
-                .overlay(alignment: .bottomTrailing) {
-                    Button {
-                        cancelAutoPlay()
-                        Task { await playWord(task) }
-                    } label: {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
-                            .padding(6)
-                            .background(Color(red: 0.91, green: 0.96, blue: 1.0))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .offset(x: 18, y: 10)
-                    .accessibilityLabel("播放单词")
+            VStack(spacing: 10) {
+                Text(task.word)
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    cancelAutoPlay()
+                    Task { await playWord(task) }
+                } label: {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                        .padding(6)
+                        .background(Color(red: 0.91, green: 0.96, blue: 1.0))
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("播放单词")
+            }
 
             Button {
                 cancelAutoPlay()
@@ -540,22 +544,32 @@ struct WordReviewSessionView: View {
     private func scheduleAutoPlay() {
         guard !viewModel.isSessionFinished,
               let task = viewModel.currentSessionTask,
-              autoPlayWord || autoPlaySentence else {
+              autoPlayWord || autoPlayWordTranslation || autoPlaySentence || autoPlaySentenceTranslation else {
             cancelAutoPlay()
             return
         }
 
         cancelAutoPlay()
         let shouldPlayWord = autoPlayWord
+        let shouldPlayWordTranslation = autoPlayWordTranslation
         let shouldPlaySentence = autoPlaySentence
+        let shouldPlaySentenceTranslation = autoPlaySentenceTranslation
         autoPlayTask = Task {
             if shouldPlayWord {
                 guard !Task.isCancelled else { return }
                 await playWord(task)
             }
+            if shouldPlayWordTranslation {
+                guard !Task.isCancelled else { return }
+                await playWordTranslation(task)
+            }
             if shouldPlaySentence {
                 guard !Task.isCancelled else { return }
                 await playSentence(task)
+            }
+            if shouldPlaySentenceTranslation {
+                guard !Task.isCancelled else { return }
+                await playSentenceTranslation(task)
             }
         }
     }
@@ -575,11 +589,36 @@ struct WordReviewSessionView: View {
         )
     }
 
+    private func playWordTranslation(_ task: WordReviewTaskItem) async {
+        let spoken = [task.meaning, task.tip]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "，")
+        guard !spoken.isEmpty else { return }
+        try? await ArticleAudioManager.shared.speak(
+            sentenceId: nil,
+            text: spoken,
+            type: .translation,
+            style: .focusedSentence
+        )
+    }
+
     private func playSentence(_ task: WordReviewTaskItem) async {
         try? await ArticleAudioManager.shared.speak(
             sentenceId: task.sentenceId,
             text: task.sentenceOriginal,
             type: .original,
+            style: .focusedSentence
+        )
+    }
+
+    private func playSentenceTranslation(_ task: WordReviewTaskItem) async {
+        let text = task.sentenceTranslation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        try? await ArticleAudioManager.shared.speak(
+            sentenceId: task.sentenceId,
+            text: text,
+            type: .translation,
             style: .focusedSentence
         )
     }
