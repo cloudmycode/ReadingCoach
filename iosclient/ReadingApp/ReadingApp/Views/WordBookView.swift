@@ -1,5 +1,16 @@
 import SwiftUI
 
+struct WordBookPlaybackOptions {
+    var playWord: Bool
+    var playWordTranslation: Bool
+    var playSentence: Bool
+    var playSentenceTranslation: Bool
+
+    var hasAnyEnabled: Bool {
+        playWord || playWordTranslation || playSentence || playSentenceTranslation
+    }
+}
+
 struct WordBookView: View {
     @ObservedObject var viewModel: WordBookViewModel
     var articleId: String? = nil
@@ -7,20 +18,23 @@ struct WordBookView: View {
     var showsOpenArticleButton: Bool = true
     let onOpenArticle: (String) -> Void
 
+    @AppStorage("wordBookAutoPlayWord") private var autoPlayWord = false
+    @AppStorage("wordBookAutoPlayWordTranslation") private var autoPlayWordTranslation = false
+    @AppStorage("wordBookAutoPlaySentence") private var autoPlaySentence = false
+    @AppStorage("wordBookAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false
+
+    private var playbackOptions: WordBookPlaybackOptions {
+        WordBookPlaybackOptions(
+            playWord: autoPlayWord,
+            playWordTranslation: autoPlayWordTranslation,
+            playSentence: autoPlaySentence,
+            playSentenceTranslation: autoPlaySentenceTranslation
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if let articleTitle, !articleTitle.isEmpty {
-                HStack {
-                    Text(articleTitle)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-                        .lineLimit(2)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 18)
-                .padding(.bottom, 4)
-            }
+            topBar
 
             if viewModel.displayedEntries.isEmpty {
                 emptyState
@@ -38,13 +52,13 @@ struct WordBookView: View {
                                     await viewModel.explainWord(
                                         in: entry,
                                         word: entry.word,
-                                        playTranslation: true
+                                        options: playbackOptions
                                     )
                                 }
                             },
                             onTapSentence: {
                                 Task {
-                                    await viewModel.playSentence(entry)
+                                    await viewModel.playSentence(entry, options: playbackOptions)
                                 }
                             },
                             onOpenArticle: {
@@ -115,6 +129,39 @@ struct WordBookView: View {
         }
     }
 
+    private var topBar: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(
+                (articleTitle?.isEmpty == false)
+                ? articleTitle!
+                : "生词本"
+            )
+            .font(.system(size: 22, weight: .bold))
+            .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+            .lineLimit(2)
+
+            Spacer(minLength: 0)
+
+            Menu {
+                Toggle("读单词", isOn: $autoPlayWord)
+                Toggle("读单词翻译", isOn: $autoPlayWordTranslation)
+                Toggle("读句子", isOn: $autoPlaySentence)
+                Toggle("读句子翻译", isOn: $autoPlaySentenceTranslation)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
+                    .frame(width: 36, height: 36)
+                    .background(Color(red: 0.95, green: 0.97, blue: 1.0))
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel("生词本设置")
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 18)
+        .padding(.bottom, 4)
+    }
+
     private var emptyState: some View {
         VStack(spacing: 14) {
             Spacer(minLength: 60)
@@ -138,7 +185,7 @@ struct WordBookView: View {
     private var playbackBar: some View {
         HStack(spacing: 12) {
             Button {
-                viewModel.togglePlaybackAll()
+                viewModel.togglePlaybackAll(options: playbackOptions)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: viewModel.isPlayingAll ? "stop.fill" : "play.fill")
@@ -153,8 +200,13 @@ struct WordBookView: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(!playbackOptions.hasAnyEnabled && !viewModel.isPlayingAll)
 
-            Text(viewModel.isPlayingAll ? "按顺序朗读单词和句子" : "从上到下：单词 → 句子")
+            Text(
+                viewModel.isPlayingAll
+                ? "按设置顺序朗读"
+                : (playbackOptions.hasAnyEnabled ? "按设置项依次朗读" : "请先在设置中勾选朗读项")
+            )
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
                 .lineLimit(1)
@@ -248,7 +300,7 @@ struct WordBookView: View {
                             await viewModel.explainWord(
                                 in: entry,
                                 word: token.normalized,
-                                playTranslation: true
+                                options: playbackOptions
                             )
                         }
                     } label: {
