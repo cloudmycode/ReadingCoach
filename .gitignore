@@ -19,6 +19,10 @@ server/attachments/
 __pycache__/
 *.pyc
 
+# Console web
+console/web/node_modules
+console/web/dist
+
 # 测试用样例图片
 server/scripts/*.jpg
 server/scripts/*.png

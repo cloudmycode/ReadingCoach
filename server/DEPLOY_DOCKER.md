@@ -154,4 +154,4 @@ nginx -t && systemctl reload nginx
 | `config.docker.example.json` → `config.json` | 后端配置（含 AI Key） |
 | `db/schema.sql` | 首次空卷自动导入 |
 | `scripts/docker-ship.sh` | 本机构建并推送到服务器 |
-| `deploy/nginx.readingcoach.conf` | Nginx 示例 |
+| `deploy/nginx.readingcoach.conf` | Nginx 示例（Web 静态 + `/api` 反代） |
