@@ -281,6 +281,10 @@ struct WordReviewSessionView: View {
     @ObservedObject var viewModel: ReviewTasksViewModel
     let onOpenArticle: (String, String) -> Void
 
+    @AppStorage("reviewAutoPlayWord") private var autoPlayWord = false
+    @AppStorage("reviewAutoPlaySentence") private var autoPlaySentence = false
+    @State private var autoPlayTask: Task<Void, Never>?
+
     var body: some View {
         ZStack {
             Color(red: 0.97, green: 0.98, blue: 1.0).ignoresSafeArea()
@@ -297,11 +301,26 @@ struct WordReviewSessionView: View {
                 }
             }
         }
+        .onAppear {
+            scheduleAutoPlay()
+        }
+        .onChange(of: viewModel.sessionIndex) { _, _ in
+            scheduleAutoPlay()
+        }
+        .onChange(of: viewModel.isSessionFinished) { _, finished in
+            if finished {
+                cancelAutoPlay()
+            }
+        }
+        .onDisappear {
+            cancelAutoPlay()
+        }
     }
 
     private var header: some View {
         HStack {
             Button("关闭") {
+                cancelAutoPlay()
                 viewModel.closeSession()
             }
             .font(.system(size: 15, weight: .semibold))
@@ -315,7 +334,17 @@ struct WordReviewSessionView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 40, height: 20)
+            Menu {
+                Toggle("自动播放单词", isOn: $autoPlayWord)
+                Toggle("自动播放句子", isOn: $autoPlaySentence)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
+                    .frame(width: 40, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("复习设置")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -329,9 +358,32 @@ struct WordReviewSessionView: View {
                 .font(.system(size: 42, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
                 .multilineTextAlignment(.center)
+                .overlay(alignment: .bottomTrailing) {
+                    Button {
+                        cancelAutoPlay()
+                        Task { await playWord(task) }
+                    } label: {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                            .padding(6)
+                            .background(Color(red: 0.91, green: 0.96, blue: 1.0))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 18, y: 10)
+                    .accessibilityLabel("播放单词")
+                }
 
-            highlightedSentence(task)
-                .padding(.horizontal, 8)
+            Button {
+                cancelAutoPlay()
+                Task { await playSentence(task) }
+            } label: {
+                highlightedSentence(task)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .accessibilityLabel("播放句子")
 
             Text(task.articleTitle.isEmpty ? "来自阅读文章" : "来自 \(task.articleTitle)")
                 .font(.system(size: 13, weight: .medium))
@@ -369,29 +421,6 @@ struct WordReviewSessionView: View {
 
             Spacer()
 
-            HStack(spacing: 12) {
-                sessionButton(title: "播放单词", color: Color(red: 0.0, green: 0.4, blue: 1.0)) {
-                    Task {
-                        try? await ArticleAudioManager.shared.speak(
-                            sentenceId: nil,
-                            text: task.word,
-                            type: .original,
-                            style: .focusedSentence
-                        )
-                    }
-                }
-                sessionButton(title: "播放句子", color: Color(red: 0.2, green: 0.55, blue: 0.95)) {
-                    Task {
-                        try? await ArticleAudioManager.shared.speak(
-                            sentenceId: task.sentenceId,
-                            text: task.sentenceOriginal,
-                            type: .original,
-                            style: .focusedSentence
-                        )
-                    }
-                }
-            }
-
             if viewModel.isRevealed {
                 HStack(spacing: 12) {
                     Button {
@@ -424,6 +453,7 @@ struct WordReviewSessionView: View {
                 }
 
                 Button {
+                    cancelAutoPlay()
                     onOpenArticle(task.articleId, task.articleTitle)
                 } label: {
                     Text("打开原文")
@@ -464,6 +494,7 @@ struct WordReviewSessionView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
             Button("返回任务") {
+                cancelAutoPlay()
                 viewModel.closeSession()
             }
             .font(.system(size: 16, weight: .semibold))
@@ -506,17 +537,51 @@ struct WordReviewSessionView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func sessionButton(title: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(color)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(color.opacity(0.1))
-                .clipShape(Capsule())
+    private func scheduleAutoPlay() {
+        guard !viewModel.isSessionFinished,
+              let task = viewModel.currentSessionTask,
+              autoPlayWord || autoPlaySentence else {
+            cancelAutoPlay()
+            return
         }
-        .buttonStyle(.plain)
+
+        cancelAutoPlay()
+        let shouldPlayWord = autoPlayWord
+        let shouldPlaySentence = autoPlaySentence
+        autoPlayTask = Task {
+            if shouldPlayWord {
+                guard !Task.isCancelled else { return }
+                await playWord(task)
+            }
+            if shouldPlaySentence {
+                guard !Task.isCancelled else { return }
+                await playSentence(task)
+            }
+        }
+    }
+
+    private func cancelAutoPlay() {
+        autoPlayTask?.cancel()
+        autoPlayTask = nil
+        ArticleAudioManager.shared.stop()
+    }
+
+    private func playWord(_ task: WordReviewTaskItem) async {
+        try? await ArticleAudioManager.shared.speak(
+            sentenceId: nil,
+            text: task.word,
+            type: .original,
+            style: .focusedSentence
+        )
+    }
+
+    private func playSentence(_ task: WordReviewTaskItem) async {
+        try? await ArticleAudioManager.shared.speak(
+            sentenceId: task.sentenceId,
+            text: task.sentenceOriginal,
+            type: .original,
+            style: .focusedSentence
+        )
     }
 }
 
