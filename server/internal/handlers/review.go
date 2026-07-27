@@ -20,6 +20,32 @@ func NewReviewHandler(articleService *services.ArticleService) *ReviewHandler {
 	return &ReviewHandler{articleService: articleService}
 }
 
+func (h *ReviewHandler) GetToday(c *gin.Context) {
+	if h.articleService == nil {
+		jsonError(c, http.StatusServiceUnavailable, "复习任务服务未配置")
+		return
+	}
+
+	userID := getUserID(c)
+	if userID == 0 {
+		return
+	}
+
+	summary, err := h.articleService.GetWordReviewTodaySummary(c.Request.Context(), userID)
+	if err != nil {
+		logger.Error("❌ 获取今日生词复习概览失败 user=%d: %v", userID, err)
+		jsonError(c, http.StatusInternalServerError, "获取今日复习概览失败")
+		return
+	}
+
+	jsonOK(c, "获取成功", gin.H{
+		"due_count":       summary.DueCount,
+		"completed_count": summary.CompletedCount,
+		"daily_limit":     summary.DailyLimit,
+		"streak_days":     summary.StreakDays,
+	})
+}
+
 func (h *ReviewHandler) ListTasks(c *gin.Context) {
 	if h.articleService == nil {
 		jsonError(c, http.StatusServiceUnavailable, "复习任务服务未配置")
@@ -37,31 +63,16 @@ func (h *ReviewHandler) ListTasks(c *gin.Context) {
 		return
 	}
 
-	tasks, err := h.articleService.ListReviewTasks(c.Request.Context(), userID, status)
+	tasks, err := h.articleService.ListWordReviewTasks(c.Request.Context(), userID, status)
 	if err != nil {
-		logger.Error("❌ 获取复习任务失败 user=%d status=%s: %v", userID, status, err)
+		logger.Error("❌ 获取生词复习任务失败 user=%d status=%s: %v", userID, status, err)
 		jsonError(c, http.StatusInternalServerError, "获取复习任务失败")
 		return
 	}
 
 	items := make([]gin.H, 0, len(tasks))
 	for _, task := range tasks {
-		item := gin.H{
-			"task_id":        task.TaskID,
-			"article_id":     utils.EncryptID(task.ArticleID),
-			"article_title":  task.ArticleTitle,
-			"sentence_count": task.SentenceCount,
-			"word_count":     task.WordCount,
-			"scheduled_for":  task.ScheduledFor.Format("2006-01-02"),
-			"status":         task.Status,
-		}
-		if task.StartedAt != nil {
-			item["started_at"] = task.StartedAt.Format(time.RFC3339)
-		}
-		if task.CompletedAt != nil {
-			item["completed_at"] = task.CompletedAt.Format(time.RFC3339)
-		}
-		items = append(items, item)
+		items = append(items, wordReviewTaskPayload(task))
 	}
 
 	jsonOK(c, "获取成功", gin.H{
@@ -70,16 +81,13 @@ func (h *ReviewHandler) ListTasks(c *gin.Context) {
 	})
 }
 
-func (h *ReviewHandler) CompleteArticleTask(c *gin.Context) {
+type submitWordReviewReq struct {
+	Result string `json:"result"`
+}
+
+func (h *ReviewHandler) SubmitResult(c *gin.Context) {
 	if h.articleService == nil {
 		jsonError(c, http.StatusServiceUnavailable, "复习任务服务未配置")
-		return
-	}
-
-	encryptedID := c.Param("id")
-	articleID, err := utils.DecryptID(encryptedID)
-	if encryptedID == "" || err != nil {
-		jsonError(c, http.StatusBadRequest, "无效的文章ID")
 		return
 	}
 
@@ -88,33 +96,71 @@ func (h *ReviewHandler) CompleteArticleTask(c *gin.Context) {
 		return
 	}
 
-	task, completed, err := h.articleService.CompleteReviewTaskByArticleID(c.Request.Context(), int64(articleID), userID)
-	if err != nil {
-		logger.Error("❌ 完成复习任务失败 article=%d user=%d: %v", articleID, userID, err)
-		jsonError(c, http.StatusInternalServerError, "完成复习任务失败")
+	entryID := parseParamInt64(c.Param("entry_id"))
+	if entryID <= 0 {
+		jsonError(c, http.StatusBadRequest, "无效的生词ID")
 		return
 	}
 
-	if !completed || task == nil {
-		jsonOK(c, "当前没有可完成的复习任务", gin.H{
-			"completed":  false,
-			"article_id": utils.EncryptID(int64(articleID)),
-		})
+	var req submitWordReviewReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	result, err := h.articleService.SubmitWordReviewResult(c.Request.Context(), userID, entryID, req.Result)
+	if err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "not found"):
+			jsonError(c, http.StatusNotFound, "生词不存在")
+		case strings.Contains(msg, "paused"):
+			jsonError(c, http.StatusBadRequest, "该生词已暂停复习")
+		case strings.Contains(msg, "invalid review result"):
+			jsonError(c, http.StatusBadRequest, "复习结果不支持")
+		default:
+			logger.Error("❌ 提交生词复习结果失败 user=%d entry=%d: %v", userID, entryID, err)
+			jsonError(c, http.StatusInternalServerError, "提交复习结果失败")
+		}
 		return
 	}
 
 	payload := gin.H{
-		"completed":      true,
-		"task_id":        task.TaskID,
-		"article_id":     utils.EncryptID(task.ArticleID),
-		"article_title":  task.ArticleTitle,
-		"sentence_count": task.SentenceCount,
-		"word_count":     task.WordCount,
-		"scheduled_for":  task.ScheduledFor.Format("2006-01-02"),
-		"status":         task.Status,
+		"entry_id":       result.EntryID,
+		"result":         result.Result,
+		"review_step":    result.ReviewStep,
+		"mastery_status": result.MasteryStatus,
 	}
-	if task.CompletedAt != nil {
-		payload["completed_at"] = task.CompletedAt.Format(time.RFC3339)
+	if result.NextReviewAt != nil {
+		payload["next_review_at"] = result.NextReviewAt.Format("2006-01-02")
 	}
-	jsonOK(c, "复习任务已完成", payload)
+	if result.LastReviewedAt != nil {
+		payload["last_reviewed_at"] = result.LastReviewedAt.Format(time.RFC3339)
+	}
+	jsonOK(c, "复习结果已保存", payload)
+}
+
+func wordReviewTaskPayload(task services.WordReviewTask) gin.H {
+	item := gin.H{
+		"entry_id":             task.EntryID,
+		"word":                 task.Word,
+		"normalized_word":      task.NormalizedWord,
+		"part_of_speech":       task.PartOfSpeech,
+		"meaning":              task.Meaning,
+		"tip":                  task.Tip,
+		"sentence_original":    task.SentenceOriginal,
+		"sentence_translation": task.SentenceTranslation,
+		"article_id":           utils.EncryptID(task.ArticleID),
+		"article_title":        task.ArticleTitle,
+		"sentence_id":          task.SentenceID,
+		"review_step":          task.ReviewStep,
+		"mastery_status":       task.MasteryStatus,
+	}
+	if task.NextReviewAt != nil {
+		item["next_review_at"] = task.NextReviewAt.Format("2006-01-02")
+	}
+	if task.LastReviewedAt != nil {
+		item["last_reviewed_at"] = task.LastReviewedAt.Format(time.RFC3339)
+	}
+	return item
 }

@@ -188,8 +188,6 @@ final class ArticleDetailViewModel: ObservableObject {
     }
     
     private func playSequence(startingAt startIndex: Int) async {
-        var finishedAllSentences = true
-
         for index in startIndex..<sentences.count {
             if Task.isCancelled { return }
             let sentence = sentences[index]
@@ -206,15 +204,11 @@ final class ArticleDetailViewModel: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
-                finishedAllSentences = false
                 toastMessage = error.localizedDescription
                 break
             }
         }
 
-        if finishedAllSentences {
-            completeReviewTaskIfNeeded()
-        }
         stopContinuousPlayback(resetProgress: true)
         stopVoiceReading(resetPosition: true)
     }
@@ -284,19 +278,6 @@ final class ArticleDetailViewModel: ObservableObject {
                     type: .original,
                     style: .focusedSentence
                 )
-            }
-        }
-    }
-
-    private func completeReviewTaskIfNeeded() {
-        Task {
-            do {
-                let response = try await ReviewAPI.shared.completeTask(articleId: articleId)
-                if response.completed {
-                    toastMessage = "复习任务已完成"
-                }
-            } catch {
-                // Avoid interrupting ordinary reading with task-sync failures.
             }
         }
     }

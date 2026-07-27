@@ -89,7 +89,7 @@ struct StatsView: View {
             
             HStack(spacing: 12) {
                 statCard(title: "累计文章", value: "\(viewModel.stats.totalArticles)", subtitle: "篇", accent: Color(red: 0.20, green: 0.49, blue: 0.93))
-                statCard(title: "今日复习", value: "\(viewModel.stats.todayReviewCount)", subtitle: "次播放/查看", accent: Color(red: 0.64, green: 0.42, blue: 0.90))
+                statCard(title: "今日复习", value: "\(viewModel.stats.todayReviewCount)", subtitle: "个生词", accent: Color(red: 0.64, green: 0.42, blue: 0.90))
             }
         }
     }
@@ -118,7 +118,7 @@ struct StatsView: View {
                             .font(.subheadline)
                             .foregroundColor(.primary)
                         
-                        Text("复习 \(day.reviewCount) 次")
+                        Text("复习 \(day.reviewCount) 词")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         

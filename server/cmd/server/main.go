@@ -128,9 +128,6 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 	if err := articleSvc.EnsureUserWordBookTable(context.Background()); err != nil {
 		logger.Warn("⚠️ 初始化用户生词本表失败: %v", err)
 	}
-	if err := articleSvc.EnsureReviewTaskTable(context.Background()); err != nil {
-		logger.Warn("⚠️ 初始化复习任务表失败: %v", err)
-	}
 
 	// 千问文本能力在未配置 API Key 时不可用。
 	aiService := services.NewAIService(

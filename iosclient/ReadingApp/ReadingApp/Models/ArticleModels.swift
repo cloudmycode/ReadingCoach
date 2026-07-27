@@ -202,11 +202,6 @@ struct ArticleSentence: Identifiable, Codable {
     }
 }
 
-struct ReviewTasksResponse: Codable {
-    let items: [ReviewTaskItem]
-    let status: String
-}
-
 struct WordBookListResponse: Codable {
     let items: [WordBookAPIItem]
 }
@@ -222,6 +217,10 @@ struct WordBookAPIItem: Codable, Identifiable, Hashable {
     let partOfSpeech: String
     let meaning: String
     let tip: String
+    let reviewStep: Int?
+    let nextReviewAt: String?
+    let masteryStatus: String?
+    let lastReviewedAt: String?
     let lookedUpAt: String
 
     var id: String { "\(entryId)" }
@@ -237,58 +236,85 @@ struct WordBookAPIItem: Codable, Identifiable, Hashable {
         case partOfSpeech = "part_of_speech"
         case meaning
         case tip
+        case reviewStep = "review_step"
+        case nextReviewAt = "next_review_at"
+        case masteryStatus = "mastery_status"
+        case lastReviewedAt = "last_reviewed_at"
         case lookedUpAt = "looked_up_at"
     }
 }
 
-struct ReviewTaskCompletionResponse: Codable {
-    let completed: Bool
-    let taskId: Int64?
-    let articleId: String
-    let articleTitle: String?
-    let sentenceCount: Int?
-    let wordCount: Int?
-    let scheduledFor: String?
-    let status: String?
-    let completedAt: String?
+struct WordReviewTodaySummary: Codable {
+    let dueCount: Int
+    let completedCount: Int
+    let dailyLimit: Int
+    let streakDays: Int
 
     enum CodingKeys: String, CodingKey {
-        case completed
-        case taskId = "task_id"
-        case articleId = "article_id"
-        case articleTitle = "article_title"
-        case sentenceCount = "sentence_count"
-        case wordCount = "word_count"
-        case scheduledFor = "scheduled_for"
-        case status
-        case completedAt = "completed_at"
+        case dueCount = "due_count"
+        case completedCount = "completed_count"
+        case dailyLimit = "daily_limit"
+        case streakDays = "streak_days"
     }
 }
 
-struct ReviewTaskItem: Identifiable, Codable, Hashable {
-    let taskId: Int64
-    let articleId: String
-    let articleTitle: String
-    let sentenceCount: Int
-    let wordCount: Int
-    let scheduledFor: String
+struct WordReviewTasksResponse: Codable {
+    let items: [WordReviewTaskItem]
     let status: String
-    let startedAt: String?
-    let completedAt: String?
+}
+
+struct WordReviewResultResponse: Codable {
+    let entryId: Int64
+    let result: String
+    let reviewStep: Int
+    let masteryStatus: String
+    let nextReviewAt: String?
+    let lastReviewedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case taskId = "task_id"
+        case entryId = "entry_id"
+        case result
+        case reviewStep = "review_step"
+        case masteryStatus = "mastery_status"
+        case nextReviewAt = "next_review_at"
+        case lastReviewedAt = "last_reviewed_at"
+    }
+}
+
+struct WordReviewTaskItem: Identifiable, Codable, Hashable {
+    let entryId: Int64
+    let word: String
+    let normalizedWord: String
+    let partOfSpeech: String
+    let meaning: String
+    let tip: String
+    let sentenceOriginal: String
+    let sentenceTranslation: String
+    let articleId: String
+    let articleTitle: String
+    let sentenceId: Int
+    let reviewStep: Int
+    let masteryStatus: String
+    let nextReviewAt: String?
+    let lastReviewedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case entryId = "entry_id"
+        case word
+        case normalizedWord = "normalized_word"
+        case partOfSpeech = "part_of_speech"
+        case meaning
+        case tip
+        case sentenceOriginal = "sentence_original"
+        case sentenceTranslation = "sentence_translation"
         case articleId = "article_id"
         case articleTitle = "article_title"
-        case sentenceCount = "sentence_count"
-        case wordCount = "word_count"
-        case scheduledFor = "scheduled_for"
-        case status
-        case startedAt = "started_at"
-        case completedAt = "completed_at"
+        case sentenceId = "sentence_id"
+        case reviewStep = "review_step"
+        case masteryStatus = "mastery_status"
+        case nextReviewAt = "next_review_at"
+        case lastReviewedAt = "last_reviewed_at"
     }
 
-    var id: String {
-        String(taskId)
-    }
+    var id: String { "\(entryId)" }
 }

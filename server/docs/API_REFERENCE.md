@@ -220,6 +220,20 @@
 
 ---
 
+## 4.5 生词复习任务
+
+任务单位是 `user_word_book` 条目，每日上限 20 个词。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_limit` / `streak_days` |
+| GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 今日已复习词列表 |
+| POST | `/api/review/tasks/:entry_id/result` | 提交结果：`{"result":"mastered"\|"again"}` |
+
+查词写入生词本时，新词默认 `next_review_at = 明天`。旧文章复习表 `article_review_tasks` 已废弃删除。
+
+---
+
 ## 5. 客户端调用约定
 
 - iOS 客户端通过统一网络层调用这些接口。

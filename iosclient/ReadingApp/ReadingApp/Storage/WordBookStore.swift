@@ -23,9 +23,41 @@ struct WordBookEntry: Identifiable, Equatable {
     let partOfSpeech: String
     let meaning: String
     let tip: String
+    let reviewStep: Int
+    let nextReviewAt: String?
+    let masteryStatus: String
+    let lastReviewedAt: String?
     let lookedUpAt: Date
 
     var id: String { "\(entryId)" }
+
+    var reviewBadgeText: String {
+        if masteryStatus == "mastered" {
+            return "已掌握"
+        }
+        if masteryStatus == "paused" {
+            return "已暂停"
+        }
+        guard let nextReviewAt, !nextReviewAt.isEmpty else {
+            return "待安排"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: nextReviewAt) else {
+            return "学习中"
+        }
+        let today = Calendar.current.startOfDay(for: Date())
+        let target = Calendar.current.startOfDay(for: date)
+        if target <= today {
+            return "今日任务"
+        }
+        if Calendar.current.isDateInTomorrow(date) {
+            return "明天复习"
+        }
+        let output = DateFormatter()
+        output.dateFormat = "M/d"
+        return "第 \(max(reviewStep, 1)) 轮 · \(output.string(from: date))"
+    }
 }
 
 final class WordBookStore {
@@ -81,6 +113,10 @@ final class WordBookStore {
                         partOfSpeech: Self.string(from: statement, index: 7),
                         meaning: Self.string(from: statement, index: 8),
                         tip: Self.string(from: statement, index: 9),
+                        reviewStep: 0,
+                        nextReviewAt: nil,
+                        masteryStatus: "learning",
+                        lastReviewedAt: nil,
                         lookedUpAt: parseDate(lookedUpRaw) ?? Date()
                     )
                 )

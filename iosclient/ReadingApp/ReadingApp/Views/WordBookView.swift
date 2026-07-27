@@ -305,6 +305,14 @@ private struct WordBookEntryCard: View {
                         .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
                 }
 
+                Text(entry.reviewBadgeText)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(red: 0.91, green: 0.96, blue: 1.0))
+                    .clipShape(Capsule())
+
                 Spacer()
 
                 if showsOpenArticleButton {

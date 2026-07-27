@@ -40,7 +40,7 @@ func (h *WordBookHandler) ListWordBook(c *gin.Context) {
 
 	items := make([]gin.H, 0, len(entries))
 	for _, entry := range entries {
-		items = append(items, gin.H{
+		item := gin.H{
 			"entry_id":             entry.EntryID,
 			"article_id":           utils.EncryptID(entry.ArticleID),
 			"sentence_id":          entry.SentenceID,
@@ -51,8 +51,17 @@ func (h *WordBookHandler) ListWordBook(c *gin.Context) {
 			"part_of_speech":       entry.PartOfSpeech,
 			"meaning":              entry.Meaning,
 			"tip":                  entry.Tip,
+			"review_step":          entry.ReviewStep,
+			"mastery_status":       entry.MasteryStatus,
 			"looked_up_at":         entry.LookedUpAt.Format(time.RFC3339),
-		})
+		}
+		if entry.NextReviewAt != nil {
+			item["next_review_at"] = entry.NextReviewAt.Format("2006-01-02")
+		}
+		if entry.LastReviewedAt != nil {
+			item["last_reviewed_at"] = entry.LastReviewedAt.Format(time.RFC3339)
+		}
+		items = append(items, item)
 	}
 
 	jsonOK(c, "获取成功", gin.H{"items": items})

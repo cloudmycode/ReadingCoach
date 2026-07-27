@@ -291,6 +291,10 @@ private extension WordBookAPIItem {
             partOfSpeech: partOfSpeech,
             meaning: meaning,
             tip: tip,
+            reviewStep: reviewStep ?? 0,
+            nextReviewAt: nextReviewAt,
+            masteryStatus: masteryStatus ?? "learning",
+            lastReviewedAt: lastReviewedAt,
             lookedUpAt: lookedUp
         )
     }

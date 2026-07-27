@@ -51,6 +51,9 @@ type APIGroup struct {
 // │ POST    │ /api/articles/:id/sentences/:sentence_id/ask          │ 是 │ 围绕句子提问 │
 // │ GET     │ /api/word-book           │  是  │ 获取用户生词本           │
 // │ DELETE  │ /api/word-book/:entry_id │  是  │ 删除生词本条目           │
+// │ GET     │ /api/review/today        │  是  │ 今日生词复习概览         │
+// │ GET     │ /api/review/tasks        │  是  │ 生词复习任务列表         │
+// │ POST    │ /api/review/tasks/:entry_id/result │ 是 │ 提交生词复习结果 │
 // │ GET     │ /api/stats/overview      │  是  │ 获取学习统计概览         │
 // └─────────┴──────────────────────────┴──────┴──────────────────────────┘
 func (h *Handlers) APIRoutes() []APIGroup {
@@ -82,10 +85,11 @@ func (h *Handlers) APIRoutes() []APIGroup {
 		},
 		{
 			Prefix: "/review",
-			Desc:   "复习任务",
+			Desc:   "生词复习任务",
 			Routes: []Route{
-				{http.MethodGet, "/tasks", true, "获取复习任务列表", h.Review.ListTasks},
-				{http.MethodPost, "/articles/:id/complete", true, "完成文章复习任务", h.Review.CompleteArticleTask},
+				{http.MethodGet, "/today", true, "获取今日生词复习概览", h.Review.GetToday},
+				{http.MethodGet, "/tasks", true, "获取生词复习任务列表", h.Review.ListTasks},
+				{http.MethodPost, "/tasks/:entry_id/result", true, "提交生词复习结果", h.Review.SubmitResult},
 			},
 		},
 		{

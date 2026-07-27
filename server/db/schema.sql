@@ -167,41 +167,6 @@ CREATE TABLE `user_study_logs` (
 INSERT INTO `user_study_logs` VALUES (1,1,'2026-07-06',0,2,'2026-07-06 16:50:50','2026-07-06 08:49:35',NULL),(3,1,'2026-07-10',0,4,'2026-07-10 06:18:11','2026-07-10 02:45:36',NULL),(7,1,'2026-07-19',0,30,'2026-07-19 15:36:53','2026-07-19 08:10:29',NULL),(37,1,'2026-07-20',5,104,'2026-07-20 23:55:31','2026-07-20 02:06:19',NULL),(146,1,'2026-07-21',1,3,'2026-07-21 10:02:12','2026-07-21 07:25:03',NULL),(150,1,'2026-07-22',0,6,'2026-07-22 04:47:34','2026-07-22 02:21:52',NULL),(156,1,'2026-07-23',5,14,'2026-07-23 16:09:51','2026-07-23 03:58:16',NULL),(175,1,'2026-07-24',1,7,'2026-07-24 14:05:27','2026-07-24 13:05:32',NULL),(183,1,'2026-07-25',0,1,'2026-07-25 11:51:04','2026-07-25 11:51:04',NULL);
 /*!40000 ALTER TABLE `user_study_logs` ENABLE KEYS */;
 
---
--- Table structure for table `article_review_tasks`
---
-
-DROP TABLE IF EXISTS `article_review_tasks`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `article_review_tasks` (
-  `task_id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `user_id` int(11) NOT NULL,
-  `article_id` int(11) NOT NULL,
-  `task_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'review',
-  `scheduled_for` date NOT NULL,
-  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-  `started_at` datetime DEFAULT NULL,
-  `completed_at` datetime DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL,
-  PRIMARY KEY (`task_id`),
-  UNIQUE KEY `idx_user_article_day_type` (`user_id`,`article_id`,`scheduled_for`,`task_type`),
-  KEY `idx_user_status_schedule` (`user_id`,`status`,`scheduled_for`),
-  KEY `idx_user_completed_at` (`user_id`,`completed_at`),
-  KEY `fk_article_review_tasks_article` (`article_id`),
-  CONSTRAINT `fk_article_review_tasks_article` FOREIGN KEY (`article_id`) REFERENCES `articles` (`article_id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_article_review_tasks_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping data for table `article_review_tasks`
---
-
-/*!40000 ALTER TABLE `article_review_tasks` DISABLE KEYS */;
-INSERT INTO `article_review_tasks` VALUES (3,1,18,'review','2026-07-24','pending',NULL,NULL,'2026-07-23 13:44:36','0000-00-00 00:00:00'),(4,1,19,'review','2026-07-24','pending',NULL,NULL,'2026-07-23 14:12:10','0000-00-00 00:00:00'),(5,1,20,'review','2026-07-24','pending',NULL,NULL,'2026-07-23 14:38:52','0000-00-00 00:00:00'),(6,1,21,'review','2026-07-25','pending',NULL,NULL,'2026-07-24 13:05:55','2026-07-24 13:05:55');
-/*!40000 ALTER TABLE `article_review_tasks` ENABLE KEYS */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
