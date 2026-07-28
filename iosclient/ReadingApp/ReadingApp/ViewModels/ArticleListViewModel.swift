@@ -54,9 +54,10 @@ final class ArticleListViewModel: ObservableObject {
             let response = try await ArticleAPI.shared.listArticles()
             articles = response.items
             ArticleCacheStore.shared.saveArticles(response.items)
-        } catch is CancellationError {
-            return
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             showToast(error.localizedDescription)
         }
     }
@@ -69,9 +70,10 @@ final class ArticleListViewModel: ObservableObject {
             articles = response.items
             ArticleCacheStore.shared.saveArticles(response.items)
             showToast("刷新成功")
-        } catch is CancellationError {
-            return
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             showToast("刷新失败：\(error.localizedDescription)")
         }
     }
@@ -100,6 +102,9 @@ final class ArticleListViewModel: ObservableObject {
             }
             return true
         } catch {
+            if isCancellationError(error) {
+                return false
+            }
             showToast(error.localizedDescription)
             return false
         }
@@ -141,6 +146,9 @@ final class ArticleListViewModel: ObservableObject {
             }
             ArticleCacheStore.shared.updateArticleTitle(articleId: article.id, title: response.title)
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             showToast(error.localizedDescription)
         }
     }

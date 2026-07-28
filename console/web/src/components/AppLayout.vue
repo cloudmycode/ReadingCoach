@@ -9,6 +9,8 @@
       <nav class="layout__nav">
         <RouterLink to="/articles/new" class="nav-link">录入文章</RouterLink>
         <RouterLink to="/articles" class="nav-link">文章列表</RouterLink>
+        <RouterLink to="/review-tasks" class="nav-link">复习任务</RouterLink>
+        <RouterLink to="/word-book" class="nav-link">生词本</RouterLink>
       </nav>
 
       <div class="layout__user">

@@ -30,6 +30,9 @@ final class StatsViewModel: ObservableObject {
         do {
             stats = try await StatsAPI.shared.getOverview(days: 14)
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             toastMessage = error.localizedDescription
         }
     }

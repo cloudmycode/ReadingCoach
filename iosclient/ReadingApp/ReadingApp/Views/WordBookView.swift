@@ -18,7 +18,7 @@ struct WordBookView: View {
     var showsOpenArticleButton: Bool = true
     let onOpenArticle: (String) -> Void
 
-    @AppStorage("wordBookAutoPlayWord") private var autoPlayWord = false
+    @AppStorage("wordBookAutoPlayWord") private var autoPlayWord = true
     @AppStorage("wordBookAutoPlayWordTranslation") private var autoPlayWordTranslation = false
     @AppStorage("wordBookAutoPlaySentence") private var autoPlaySentence = false
     @AppStorage("wordBookAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false

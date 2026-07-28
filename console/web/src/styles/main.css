@@ -268,6 +268,125 @@ textarea {
   gap: 8px;
 }
 
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  padding: 16px;
+  border: 1px solid #e5eaf2;
+  border-radius: 12px;
+  background: #fafcff;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+}
+
+.stat-card__label {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tab-bar__button {
+  padding: 10px 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4b5563;
+  cursor: pointer;
+}
+
+.tab-bar__button--active {
+  background: #eef4ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.record-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px;
+  border: 1px solid #e5eaf2;
+  border-radius: 12px;
+  background: #fafcff;
+}
+
+.record-card__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.record-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.record-card__title-row h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.record-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.record-card__meta,
+.record-card__submeta {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.record-card__desc {
+  margin: 8px 0 0;
+}
+
+.record-card__quote {
+  margin: 10px 0 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.record-card__translation {
+  margin: 8px 0 0;
+  color: #4b5563;
+}
+
+.record-card__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .back-link {
   display: inline-block;
   margin-bottom: 8px;
@@ -328,5 +447,18 @@ textarea {
 
   .article-card {
     flex-direction: column;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .record-card {
+    flex-direction: column;
+  }
+
+  .record-card__actions {
+    flex-direction: row;
+    align-items: center;
   }
 }

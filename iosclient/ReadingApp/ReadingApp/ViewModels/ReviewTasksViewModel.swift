@@ -47,9 +47,10 @@ final class ReviewTasksViewModel: ObservableObject {
             pendingTasks = pending.items
             completedTasks = completed.items
             toastMessage = nil
-        } catch is CancellationError {
-            return
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             toastMessage = error.localizedDescription
         }
     }
@@ -84,6 +85,9 @@ final class ReviewTasksViewModel: ObservableObject {
             advanceAfterSubmit()
             await loadTasks()
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             toastMessage = error.localizedDescription
         }
     }

@@ -4,6 +4,8 @@ import LoginView from "../views/LoginView.vue";
 import CreateArticleView from "../views/CreateArticleView.vue";
 import ArticleListView from "../views/ArticleListView.vue";
 import ArticleDetailView from "../views/ArticleDetailView.vue";
+import ReviewTasksView from "../views/ReviewTasksView.vue";
+import WordBookView from "../views/WordBookView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,6 +36,18 @@ const router = createRouter({
       path: "/articles/:id",
       name: "article-detail",
       component: ArticleDetailView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/review-tasks",
+      name: "review-tasks",
+      component: ReviewTasksView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/word-book",
+      name: "word-book",
+      component: WordBookView,
       meta: { requiresAuth: true },
     },
   ],

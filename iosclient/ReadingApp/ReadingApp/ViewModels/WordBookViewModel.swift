@@ -66,6 +66,9 @@ final class WordBookViewModel: ObservableObject {
                 clearSelection()
             }
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             let local = WordBookStore.shared.allEntries()
             if !local.isEmpty {
                 entries = local
@@ -103,6 +106,9 @@ final class WordBookViewModel: ObservableObject {
             }
             NotificationCenter.default.post(name: .wordBookDidChange, object: nil)
         } catch {
+            if isCancellationError(error) {
+                return
+            }
             toastMessage = error.localizedDescription
         }
     }
