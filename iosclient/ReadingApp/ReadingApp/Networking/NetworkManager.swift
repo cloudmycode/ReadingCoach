@@ -206,8 +206,8 @@ final class NetworkManager {
     
     /// 处理未授权错误（401）
     private func handleUnauthorized() async {
-        // 清除本地令牌
-        UserManager.shared.clearCurrentUser()
+        // 清除当前登录态（保留各账号本地缓存）
+        UserManager.shared.logout()
         
         // 发送令牌过期通知
         await MainActor.run {

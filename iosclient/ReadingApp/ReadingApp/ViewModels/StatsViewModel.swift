@@ -28,7 +28,7 @@ final class StatsViewModel: ObservableObject {
         defer { isLoading = false }
         
         do {
-            stats = try await StatsAPI.shared.getOverview(days: 7)
+            stats = try await StatsAPI.shared.getOverview(days: 14)
         } catch {
             toastMessage = error.localizedDescription
         }

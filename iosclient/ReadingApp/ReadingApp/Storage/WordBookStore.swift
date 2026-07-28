@@ -72,13 +72,21 @@ final class WordBookStore {
     }()
 
     private init() {
-        openDatabase()
-        createTableIfNeeded()
+        reloadForCurrentUser()
     }
 
     deinit {
         if let database {
             sqlite3_close(database)
+        }
+    }
+
+    func reloadForCurrentUser() {
+        queue.sync {
+            closeDatabaseLocked()
+            guard let userId = UserScopedStorage.currentUserId else { return }
+            openDatabaseLocked(userId: userId)
+            createTableIfNeededLocked()
         }
     }
 
@@ -145,58 +153,59 @@ final class WordBookStore {
                 guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else { continue }
                 let lookedUpAt = isoFormatter.string(from: entry.lookedUpAt)
                 sqlite3_bind_int64(statement, 1, entry.entryId)
-                sqlite3_bind_text(statement, 2, entry.articleId, -1, transientDestructor)
+                sqlite3_bind_text(statement, 2, entry.articleId, -1, wordBookTransientDestructor)
                 sqlite3_bind_int(statement, 3, Int32(entry.sentenceId))
-                sqlite3_bind_text(statement, 4, entry.normalizedWord, -1, transientDestructor)
-                sqlite3_bind_text(statement, 5, entry.word, -1, transientDestructor)
-                sqlite3_bind_text(statement, 6, entry.sentenceOriginal, -1, transientDestructor)
-                sqlite3_bind_text(statement, 7, entry.sentenceTranslation, -1, transientDestructor)
-                sqlite3_bind_text(statement, 8, entry.partOfSpeech, -1, transientDestructor)
-                sqlite3_bind_text(statement, 9, entry.meaning, -1, transientDestructor)
-                sqlite3_bind_text(statement, 10, entry.tip, -1, transientDestructor)
-                sqlite3_bind_text(statement, 11, lookedUpAt, -1, transientDestructor)
+                sqlite3_bind_text(statement, 4, entry.normalizedWord, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 5, entry.word, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 6, entry.sentenceOriginal, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 7, entry.sentenceTranslation, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 8, entry.partOfSpeech, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 9, entry.meaning, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 10, entry.tip, -1, wordBookTransientDestructor)
+                sqlite3_bind_text(statement, 11, lookedUpAt, -1, wordBookTransientDestructor)
                 sqlite3_step(statement)
             }
         }
     }
 
-    private func openDatabase() {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let directory = appSupport.appendingPathComponent("ReadingCoach", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let dbURL = directory.appendingPathComponent("word_book.sqlite")
+    private func closeDatabaseLocked() {
+        if let database {
+            sqlite3_close(database)
+            self.database = nil
+        }
+    }
+
+    private func openDatabaseLocked(userId: String) {
+        let dbURL = UserScopedStorage.applicationSupportUserDirectory(userId: userId)
+            .appendingPathComponent("word_book.sqlite")
         if sqlite3_open(dbURL.path, &database) != SQLITE_OK {
             database = nil
         }
     }
 
-    private func createTableIfNeeded() {
-        queue.sync {
-            guard let database else { return }
-            // 旧版本地表无 entry_id，直接重建以匹配服务端主键。
-            if !hasEntryIdColumn(database: database) {
-                sqlite3_exec(database, "DROP TABLE IF EXISTS word_book_entries;", nil, nil, nil)
-            }
-            let sql = """
-            CREATE TABLE IF NOT EXISTS word_book_entries (
-                entry_id INTEGER NOT NULL,
-                article_id TEXT NOT NULL,
-                sentence_id INTEGER NOT NULL,
-                normalized_word TEXT NOT NULL,
-                word TEXT NOT NULL,
-                sentence_original TEXT NOT NULL,
-                sentence_translation TEXT NOT NULL DEFAULT '',
-                part_of_speech TEXT NOT NULL DEFAULT '',
-                meaning TEXT NOT NULL DEFAULT '',
-                tip TEXT NOT NULL DEFAULT '',
-                looked_up_at TEXT NOT NULL,
-                PRIMARY KEY (entry_id)
-            );
-            """
-            sqlite3_exec(database, sql, nil, nil, nil)
+    private func createTableIfNeededLocked() {
+        guard let database else { return }
+        // 旧版本地表无 entry_id，直接重建以匹配服务端主键。
+        if !hasEntryIdColumn(database: database) {
+            sqlite3_exec(database, "DROP TABLE IF EXISTS word_book_entries;", nil, nil, nil)
         }
+        let sql = """
+        CREATE TABLE IF NOT EXISTS word_book_entries (
+            entry_id INTEGER NOT NULL,
+            article_id TEXT NOT NULL,
+            sentence_id INTEGER NOT NULL,
+            normalized_word TEXT NOT NULL,
+            word TEXT NOT NULL,
+            sentence_original TEXT NOT NULL,
+            sentence_translation TEXT NOT NULL DEFAULT '',
+            part_of_speech TEXT NOT NULL DEFAULT '',
+            meaning TEXT NOT NULL DEFAULT '',
+            tip TEXT NOT NULL DEFAULT '',
+            looked_up_at TEXT NOT NULL,
+            PRIMARY KEY (entry_id)
+        );
+        """
+        sqlite3_exec(database, sql, nil, nil, nil)
     }
 
     private func hasEntryIdColumn(database: OpaquePointer) -> Bool {
@@ -228,4 +237,4 @@ final class WordBookStore {
     }
 }
 
-private let transientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+private let wordBookTransientDestructor = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

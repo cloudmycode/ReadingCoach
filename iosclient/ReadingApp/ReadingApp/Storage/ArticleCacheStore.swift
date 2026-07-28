@@ -4,13 +4,16 @@ final class ArticleCacheStore {
     static let shared = ArticleCacheStore()
 
     private let userDefaults = UserDefaults.standard
-    private let articleListKey = "readingcoach.article.list.cache"
-    private let articleDetailKey = "readingcoach.article.detail.cache"
 
     private init() {}
 
+    func reloadForCurrentUser() {
+        // UserDefaults 按 key 隔离，无需关闭句柄；保留方法以便统一切换入口调用。
+    }
+
     func cachedArticles() -> [ArticleItem] {
-        guard let data = userDefaults.data(forKey: articleListKey),
+        guard let key = listKey(),
+              let data = userDefaults.data(forKey: key),
               let items = try? JSONDecoder().decode([ArticleItem].self, from: data) else {
             return []
         }
@@ -18,31 +21,30 @@ final class ArticleCacheStore {
     }
 
     func saveArticles(_ items: [ArticleItem]) {
-        guard let data = try? JSONEncoder().encode(items) else { return }
-        userDefaults.set(data, forKey: articleListKey)
+        guard let key = listKey(),
+              let data = try? JSONEncoder().encode(items) else { return }
+        userDefaults.set(data, forKey: key)
     }
 
     func cachedArticleDetail(articleId: String) -> ArticleDetailResponse? {
-        guard let data = userDefaults.data(forKey: articleDetailKey),
-              let cache = try? JSONDecoder().decode([String: ArticleDetailResponse].self, from: data) else {
-            return nil
-        }
-        return cache[articleId]
+        cachedArticleDetails()[articleId]
     }
 
     func saveArticleDetail(_ detail: ArticleDetailResponse, articleId: String) {
+        guard let key = detailKey() else { return }
         var cache = cachedArticleDetails()
         cache[articleId] = detail
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        userDefaults.set(data, forKey: articleDetailKey)
+        userDefaults.set(data, forKey: key)
     }
 
     func removeArticle(articleId: String) {
         saveArticles(cachedArticles().filter { $0.id != articleId })
+        guard let key = detailKey() else { return }
         var cache = cachedArticleDetails()
         cache.removeValue(forKey: articleId)
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        userDefaults.set(data, forKey: articleDetailKey)
+        userDefaults.set(data, forKey: key)
     }
 
     func updateArticleTitle(articleId: String, title: String) {
@@ -52,6 +54,7 @@ final class ArticleCacheStore {
             saveArticles(items)
         }
 
+        guard let key = detailKey() else { return }
         var details = cachedArticleDetails()
         if let detail = details[articleId] {
             details[articleId] = ArticleDetailResponse(
@@ -61,15 +64,24 @@ final class ArticleCacheStore {
                 sentences: detail.sentences
             )
             guard let data = try? JSONEncoder().encode(details) else { return }
-            userDefaults.set(data, forKey: articleDetailKey)
+            userDefaults.set(data, forKey: key)
         }
     }
 
     private func cachedArticleDetails() -> [String: ArticleDetailResponse] {
-        guard let data = userDefaults.data(forKey: articleDetailKey),
+        guard let key = detailKey(),
+              let data = userDefaults.data(forKey: key),
               let cache = try? JSONDecoder().decode([String: ArticleDetailResponse].self, from: data) else {
             return [:]
         }
         return cache
+    }
+
+    private func listKey() -> String? {
+        UserScopedStorage.defaultsKey("article.list.cache")
+    }
+
+    private func detailKey() -> String? {
+        UserScopedStorage.defaultsKey("article.detail.cache")
     }
 }

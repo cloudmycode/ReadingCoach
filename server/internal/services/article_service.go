@@ -562,7 +562,6 @@ func (s *ArticleService) UpsertUserWordBookEntry(ctx context.Context, entry User
 			part_of_speech = VALUES(part_of_speech),
 			meaning = VALUES(meaning),
 			tip = VALUES(tip),
-			looked_up_at = NOW(),
 			updated_at = NOW()
 	`,
 		entry.UserID,

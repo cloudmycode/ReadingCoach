@@ -60,7 +60,14 @@ final class WordBookViewModel: ObservableObject {
 
         do {
             let response = try await WordBookAPI.shared.listEntries()
-            entries = response.items.map { $0.asWordBookEntry() }
+            entries = response.items
+                .map { $0.asWordBookEntry() }
+                .sorted { lhs, rhs in
+                    if lhs.lookedUpAt != rhs.lookedUpAt {
+                        return lhs.lookedUpAt > rhs.lookedUpAt
+                    }
+                    return lhs.entryId > rhs.entryId
+                }
             WordBookStore.shared.replaceAll(entries)
             if let selectedEntryId, !entries.contains(where: { $0.id == selectedEntryId }) {
                 clearSelection()
@@ -141,7 +148,15 @@ final class WordBookViewModel: ObservableObject {
             playbackTask = nil
         }
 
-        let playlist = displayedEntries
+        let all = displayedEntries
+        let startIndex: Int = {
+            guard let selectedEntryId,
+                  let index = all.firstIndex(where: { $0.id == selectedEntryId }) else {
+                return 0
+            }
+            return index
+        }()
+        let playlist = Array(all[startIndex...])
         let options = playbackOptions
         for entry in playlist {
             if Task.isCancelled { break }
@@ -173,6 +188,18 @@ final class WordBookViewModel: ObservableObject {
         stopPlaybackAll()
         selectEntry(entry)
         await playEntry(entry, options: options)
+    }
+
+    /// 生词本点选已有单词：只选中并按设置朗读，不重新查词，避免打乱添加时间排序。
+    func playWordEntry(_ entry: WordBookEntry, options: WordBookPlaybackOptions) async {
+        stopPlaybackAll()
+        selectEntry(entry)
+        if options.playWord {
+            await speakWord(entry.word)
+        }
+        if options.playWordTranslation {
+            await speakWordTranslation(for: entry)
+        }
     }
 
     private func speakWord(_ word: String) async {

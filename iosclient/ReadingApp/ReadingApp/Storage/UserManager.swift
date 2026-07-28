@@ -70,8 +70,8 @@ final class UserManager {
     func currentToken() -> String? {
         // 检查令牌是否过期
         if let user = currentUser(), isTokenExpired(user: user) {
-            // 令牌已过期，清除当前用户
-            clearCurrentUser()
+            // 令牌已过期，清除当前用户（保留各账号缓存目录）
+            logout()
             return nil
         }
         return currentUser()?.token
@@ -92,13 +92,26 @@ final class UserManager {
         return isTokenExpired(user: user)
     }
     
-    /// 清除当前用户（用于令牌过期或登出）
-    func clearCurrentUser() {
-        userDefaults.removeObject(forKey: currentUserKey)
+    /// 登出：只清当前用户指针，保留各 userId 缓存目录，并切换 Store 作用域。
+    func logout() {
+        clearCurrentUser()
+    }
+
+    /// 切换到已保存的账号（保留原用户缓存）。
+    func switchUser(id: String) {
+        guard loadUsers()[id] != nil else { return }
+        setCurrentUser(id: id)
     }
 
     func setCurrentUser(id: String) {
         userDefaults.set(id, forKey: currentUserKey)
+        UserScopedStorage.activateCurrentUserScope()
+    }
+
+    /// 清除当前用户（用于令牌过期或登出）；保留各账号缓存。
+    func clearCurrentUser() {
+        userDefaults.removeObject(forKey: currentUserKey)
+        UserScopedStorage.activateCurrentUserScope()
     }
 
     // MARK: - Phone History
@@ -122,4 +135,3 @@ final class UserManager {
         userDefaults.set(history, forKey: phoneHistoryKey)
     }
 }
-

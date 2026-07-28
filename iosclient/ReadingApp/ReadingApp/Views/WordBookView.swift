@@ -49,11 +49,7 @@ struct WordBookView: View {
                             showsOpenArticleButton: showsOpenArticleButton,
                             onTapWord: {
                                 Task {
-                                    await viewModel.explainWord(
-                                        in: entry,
-                                        word: entry.word,
-                                        options: playbackOptions
-                                    )
+                                    await viewModel.playWordEntry(entry, options: playbackOptions)
                                 }
                             },
                             onTapSentence: {
