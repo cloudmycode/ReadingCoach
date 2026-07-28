@@ -54,15 +54,11 @@ final class ArticleAudioManager: NSObject {
     private var playbackContinuation: CheckedContinuation<Void, Error>?
     private var activeWebSocketTask: URLSessionWebSocketTask?
     private var warmingCacheKeys: Set<String> = []
-    private lazy var cacheDirectoryURL: URL = {
-        let baseDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? fileManager.temporaryDirectory
-        let directory = baseDirectory.appendingPathComponent("SentenceAudioCache", isDirectory: true)
-        if !fileManager.fileExists(atPath: directory.path) {
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-        return directory
-    }()
+
+    private var cacheDirectoryURL: URL? {
+        guard let userId = UserScopedStorage.currentUserId else { return nil }
+        return UserScopedStorage.audioCacheDirectory(userId: userId)
+    }
 
     func speak(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -118,7 +114,8 @@ final class ArticleAudioManager: NSObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
-    private func cacheFileURL(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> URL {
+    private func cacheFileURL(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> URL? {
+        guard let cacheDirectoryURL else { return nil }
         let idComponent = sentenceId.map(String.init) ?? "adhoc"
         let digest = sha256Hex("\(text)|\(type.rawValue)|\(voiceName(for: type))|\(rateValue(for: type, style: style))")
         let fileName = "sentence_\(idComponent)_\(type.rawValue)_\(digest).mp3"
@@ -126,7 +123,8 @@ final class ArticleAudioManager: NSObject {
     }
 
     private func cacheIdentifier(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> String {
-        cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style).lastPathComponent
+        cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style)?.lastPathComponent
+            ?? "unscoped-\(type.rawValue)"
     }
 
     private func ensureAudioCached(
@@ -136,7 +134,9 @@ final class ArticleAudioManager: NSObject {
         style: SpeechPlaybackStyle,
         tracksActiveTask: Bool = true
     ) async throws -> URL {
-        let cacheURL = cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style)
+        guard let cacheURL = cacheFileURL(sentenceId: sentenceId, text: text, type: type, style: style) else {
+            throw ArticleAudioError.synthesisFailed
+        }
         if fileManager.fileExists(atPath: cacheURL.path) {
             return cacheURL
         }

@@ -21,6 +21,11 @@ final class StatsViewModel: ObservableObject {
         await load()
         hasLoaded = true
     }
+
+    func reloadForCurrentUser() {
+        hasLoaded = false
+        stats = .empty
+    }
     
     func load() async {
         guard !isLoading else { return }

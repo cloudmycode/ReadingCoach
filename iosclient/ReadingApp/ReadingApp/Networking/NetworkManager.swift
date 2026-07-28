@@ -206,10 +206,8 @@ final class NetworkManager {
     
     /// 处理未授权错误（401）
     private func handleUnauthorized() async {
-        // 清除本地令牌
-        UserManager.shared.clearCurrentUser()
-        
-        // 发送令牌过期通知
+        UserManager.shared.logoutCurrentUser()
+
         await MainActor.run {
             NotificationCenter.default.post(name: NetworkManager.tokenExpiredNotification, object: nil)
         }

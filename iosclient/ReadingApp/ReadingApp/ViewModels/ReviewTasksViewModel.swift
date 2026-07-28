@@ -55,6 +55,19 @@ final class ReviewTasksViewModel: ObservableObject {
         }
     }
 
+    func reloadForCurrentUser() {
+        summary = WordReviewTodaySummary(
+            dueCount: 0,
+            completedCount: 0,
+            dailyLimit: 20,
+            streakDays: 0
+        )
+        pendingTasks = []
+        completedTasks = []
+        closeSession()
+        toastMessage = nil
+    }
+
     func startSession() {
         guard !pendingTasks.isEmpty else { return }
         sessionQueue = pendingTasks

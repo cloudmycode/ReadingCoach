@@ -2,12 +2,11 @@
   <div class="layout">
     <header class="layout__header">
       <div class="layout__brand">
-        <RouterLink to="/articles/new" class="layout__title">ReadingCoach</RouterLink>
-        <span class="layout__subtitle">文章录入</span>
+        <RouterLink to="/articles" class="layout__title">ReadingCoach</RouterLink>
+        <span class="layout__subtitle">学习管理</span>
       </div>
 
       <nav class="layout__nav">
-        <RouterLink to="/articles/new" class="nav-link">录入文章</RouterLink>
         <RouterLink to="/articles" class="nav-link">文章列表</RouterLink>
         <RouterLink to="/review-tasks" class="nav-link">复习任务</RouterLink>
         <RouterLink to="/word-book" class="nav-link">生词本</RouterLink>

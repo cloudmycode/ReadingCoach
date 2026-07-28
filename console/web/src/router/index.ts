@@ -18,7 +18,7 @@ const router = createRouter({
     },
     {
       path: "/",
-      redirect: "/articles/new",
+      redirect: "/articles",
     },
     {
       path: "/articles/new",
@@ -61,7 +61,7 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.guest && authed) {
-    return { name: "create-article" };
+    return { name: "article-list" };
   }
 
   return true;

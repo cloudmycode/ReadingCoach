@@ -70,6 +70,21 @@ final class LoginViewModel: ObservableObject {
         countdown > 0 ? "\(countdown)s" : "获取验证码"
     }
 
+    func prepareForNewAccount() {
+        loginSuccess = false
+        phoneNumber = ""
+        verificationCode = ""
+        agreedToTerms = false
+        toastMessage = nil
+    }
+
+    func prepareForReauth(phone: String) {
+        loginSuccess = false
+        phoneNumber = phone
+        verificationCode = ""
+        toastMessage = "该账号登录已过期，请重新获取验证码"
+    }
+
     var filteredPhoneHistory: [String] {
         guard !phoneHistory.isEmpty else { return [] }
         let input = phoneNumber

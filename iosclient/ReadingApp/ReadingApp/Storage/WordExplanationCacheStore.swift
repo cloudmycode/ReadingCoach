@@ -24,13 +24,21 @@ final class WordExplanationCacheStore {
     private let queue = DispatchQueue(label: "readingcoach.word-cache.db")
 
     private init() {
-        openDatabase()
-        createTableIfNeeded()
+        reloadForCurrentUser()
     }
 
     deinit {
         if let database {
             sqlite3_close(database)
+        }
+    }
+
+    func reloadForCurrentUser() {
+        queue.sync {
+            closeDatabaseLocked()
+            guard let userId = UserScopedStorage.currentUserId else { return }
+            openDatabaseLocked(userId: userId)
+            createTableIfNeededLocked()
         }
     }
 
@@ -119,39 +127,39 @@ final class WordExplanationCacheStore {
         }
     }
 
-    private func openDatabase() {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let directory = appSupport.appendingPathComponent("ReadingCoach", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let dbURL = directory.appendingPathComponent("word_explanations.sqlite")
+    private func closeDatabaseLocked() {
+        if let database {
+            sqlite3_close(database)
+            self.database = nil
+        }
+    }
 
+    private func openDatabaseLocked(userId: String) {
+        let dbURL = UserScopedStorage.applicationSupportUserDirectory(userId: userId)
+            .appendingPathComponent("word_explanations.sqlite")
         if sqlite3_open(dbURL.path, &database) != SQLITE_OK {
             database = nil
         }
     }
 
-    private func createTableIfNeeded() {
-        queue.sync {
-            guard let database else { return }
-            if hasLegacySchema(database: database) {
-                sqlite3_exec(database, "DROP TABLE IF EXISTS word_explanations;", nil, nil, nil)
-            }
-            let sql = """
-            CREATE TABLE IF NOT EXISTS word_explanations (
-                sentence_id INTEGER NOT NULL,
-                normalized_word TEXT NOT NULL,
-                word TEXT NOT NULL,
-                part_of_speech TEXT NOT NULL,
-                meaning TEXT NOT NULL,
-                tip TEXT NOT NULL,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (sentence_id, normalized_word)
-            );
-            """
-            sqlite3_exec(database, sql, nil, nil, nil)
+    private func createTableIfNeededLocked() {
+        guard let database else { return }
+        if hasLegacySchema(database: database) {
+            sqlite3_exec(database, "DROP TABLE IF EXISTS word_explanations;", nil, nil, nil)
         }
+        let sql = """
+        CREATE TABLE IF NOT EXISTS word_explanations (
+            sentence_id INTEGER NOT NULL,
+            normalized_word TEXT NOT NULL,
+            word TEXT NOT NULL,
+            part_of_speech TEXT NOT NULL,
+            meaning TEXT NOT NULL,
+            tip TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (sentence_id, normalized_word)
+        );
+        """
+        sqlite3_exec(database, sql, nil, nil, nil)
     }
 
     private func hasLegacySchema(database: OpaquePointer) -> Bool {

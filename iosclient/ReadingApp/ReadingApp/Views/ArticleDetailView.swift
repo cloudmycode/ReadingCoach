@@ -716,19 +716,13 @@ struct ArticleDetailView: View {
     }
 
     private func hasPlayedWordTranslationBefore(_ word: String) -> Bool {
-        let normalized = word
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return false }
-        return UserDefaults.standard.bool(forKey: "word-translation-played-\(normalized)")
+        guard let key = UserScopedStorage.wordTranslationPlayedKey(word: word) else { return false }
+        return UserDefaults.standard.bool(forKey: key)
     }
 
     private func markWordTranslationPlayed(_ word: String) {
-        let normalized = word
-            .lowercased()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return }
-        UserDefaults.standard.set(true, forKey: "word-translation-played-\(normalized)")
+        guard let key = UserScopedStorage.wordTranslationPlayedKey(word: word) else { return }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     private func selectWord(_ word: String) async {
@@ -916,26 +910,32 @@ private final class SentenceChatCacheStore {
     static let shared = SentenceChatCacheStore()
 
     private let userDefaults = UserDefaults.standard
-    private let storageKey = "readingcoach.sentence.chat.cache"
 
     func messages(for sentenceId: Int) -> [DetailChatMessage] {
         loadCache()[sentenceId] ?? []
     }
 
     func save(messages: [DetailChatMessage], for sentenceId: Int) {
+        guard storageKey() != nil else { return }
         var cache = loadCache()
         cache[sentenceId] = messages
         saveCache(cache)
     }
 
     func removeMessages(for sentenceId: Int) {
+        guard storageKey() != nil else { return }
         var cache = loadCache()
         cache.removeValue(forKey: sentenceId)
         saveCache(cache)
     }
 
+    private func storageKey() -> String? {
+        UserScopedStorage.defaultsKey("sentence.chat.cache")
+    }
+
     private func loadCache() -> [Int: [DetailChatMessage]] {
-        guard let data = userDefaults.data(forKey: storageKey),
+        guard let key = storageKey(),
+              let data = userDefaults.data(forKey: key),
               let cache = try? JSONDecoder().decode([Int: [StoredDetailChatMessage]].self, from: data) else {
             return [:]
         }
@@ -953,6 +953,7 @@ private final class SentenceChatCacheStore {
     }
 
     private func saveCache(_ cache: [Int: [DetailChatMessage]]) {
+        guard let key = storageKey() else { return }
         let stored = cache.mapValues { items in
             items.map {
                 StoredDetailChatMessage(
@@ -965,7 +966,7 @@ private final class SentenceChatCacheStore {
         }
 
         guard let data = try? JSONEncoder().encode(stored) else { return }
-        userDefaults.set(data, forKey: storageKey)
+        userDefaults.set(data, forKey: key)
     }
 }
 

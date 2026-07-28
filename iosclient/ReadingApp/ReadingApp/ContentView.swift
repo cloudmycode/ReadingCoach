@@ -11,12 +11,13 @@ import Combine
 struct ContentView: View {
     @StateObject private var loginViewModel = LoginViewModel()
     @State private var isLoggedIn: Bool = false
-    private let logoutNotification = Notification.Name("ReadingAppLogoutRequested")
-    
+    @State private var activeUserId: String?
+
     var body: some View {
         Group {
             if isLoggedIn {
                 MainSelectionView()
+                    .id(activeUserId ?? "logged-in")
             } else {
                 LoginView()
                     .environmentObject(loginViewModel)
@@ -27,48 +28,79 @@ struct ContentView: View {
         }
         .onReceive(loginViewModel.$loginSuccess.removeDuplicates()) { success in
             guard success else { return }
+            activeUserId = UserManager.shared.currentUserId()
             withAnimation(.easeInOut) {
                 isLoggedIn = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NetworkManager.tokenExpiredNotification)) { _ in
-            // 令牌过期，自动跳转到登录页
             handleTokenExpired()
         }
-        .onReceive(NotificationCenter.default.publisher(for: logoutNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .readingAppLogoutRequested)) { _ in
             handleManualLogout()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readingAppAddAccountRequested)) { _ in
+            handleAddAccount()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .readingAppReauthRequested)) { notification in
+            let phone = notification.userInfo?["phone"] as? String ?? ""
+            handleReauth(phone: phone)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .userDidSwitch)) { _ in
+            activeUserId = UserManager.shared.currentUserId()
+        }
     }
-    
+
     private func checkLoginStatus() {
-        // 检查是否有已登录用户且令牌未过期
         if let user = UserManager.shared.currentUser(),
            !UserManager.shared.isTokenExpired(user: user) {
+            UserScopedStorage.activateCurrentUserScope()
+            activeUserId = user.id
             isLoggedIn = true
         } else {
-            // 如果令牌已过期，清除用户
             if UserManager.shared.currentUser() != nil {
-                UserManager.shared.clearCurrentUser()
+                UserManager.shared.logoutCurrentUser()
+            } else {
+                UserScopedStorage.activateCurrentUserScope()
             }
+            activeUserId = nil
             isLoggedIn = false
         }
     }
-    
+
     private func handleTokenExpired() {
-        // 令牌过期，清除登录状态并跳转到登录页
+        activeUserId = nil
         withAnimation(.easeInOut) {
             isLoggedIn = false
         }
-        // 重置登录视图模型状态
         loginViewModel.loginSuccess = false
     }
 
     private func handleManualLogout() {
-        UserManager.shared.clearCurrentUser()
+        UserManager.shared.logoutCurrentUser()
+        activeUserId = nil
         withAnimation(.easeInOut) {
             isLoggedIn = false
         }
         loginViewModel.loginSuccess = false
+    }
+
+    private func handleAddAccount() {
+        UserManager.shared.logoutCurrentUser()
+        activeUserId = nil
+        loginViewModel.prepareForNewAccount()
+        withAnimation(.easeInOut) {
+            isLoggedIn = false
+        }
+    }
+
+    private func handleReauth(phone: String) {
+        UserManager.shared.logoutCurrentUser()
+        activeUserId = nil
+        loginViewModel.prepareForReauth(phone: phone)
+        withAnimation(.easeInOut) {
+            isLoggedIn = false
+        }
     }
 }
 

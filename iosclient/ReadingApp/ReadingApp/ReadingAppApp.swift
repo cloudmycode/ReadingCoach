@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct ReadingAppApp: App {
+    init() {
+        UserScopedStorage.activateCurrentUserScope()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

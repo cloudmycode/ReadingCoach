@@ -20,7 +20,10 @@
       <p v-else-if="errorMessage" class="error-text">{{ errorMessage }}</p>
 
       <div v-else-if="items.length === 0" class="empty-state">
-        还没有文章，先去录入一篇吧。
+        <p>还没有文章。</p>
+        <RouterLink class="button button--primary" to="/articles/new">
+          录入文章
+        </RouterLink>
       </div>
 
       <div v-else class="article-list">

@@ -118,7 +118,7 @@ async function handleLogin() {
     await login(phone.value.trim(), code.value.trim());
     const redirect = typeof route.query.redirect === "string"
       ? route.query.redirect
-      : "/articles/new";
+      : "/articles";
     await router.replace(redirect);
   } catch (error) {
     errorMessage.value =

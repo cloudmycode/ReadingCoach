@@ -95,6 +95,14 @@ final class WordBookViewModel: ObservableObject {
         activeTip = ""
     }
 
+    func reloadForCurrentUser() {
+        stopPlaybackAll()
+        clearSelection()
+        entries = WordBookStore.shared.allEntries()
+        filterArticleId = nil
+        toastMessage = nil
+    }
+
     func deleteEntry(_ entry: WordBookEntry) async {
         stopPlaybackAll()
         do {

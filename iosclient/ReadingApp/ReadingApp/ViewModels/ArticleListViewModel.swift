@@ -170,6 +170,18 @@ final class ArticleListViewModel: ObservableObject {
         currentTab = tab
     }
 
+    func reloadForCurrentUser() {
+        articles = ArticleCacheStore.shared.cachedArticles()
+        hasLoaded = false
+        searchKeyword = ""
+        toastMessage = nil
+        showDeleteConfirmation = false
+        articleToDelete = nil
+        showTitleEditor = false
+        articleToEdit = nil
+        titleDraft = ""
+    }
+
     private func showToast(_ message: String, duration: TimeInterval = 2.0) {
         toastDismissWorkItem?.cancel()
         toastMessage = message

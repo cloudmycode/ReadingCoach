@@ -11,6 +11,7 @@ import SwiftUI
 struct StatsView: View {
     @StateObject private var viewModel = StatsViewModel()
     @Environment(\.dismiss) private var dismiss
+    @State private var isAccountSettingsPresented = false
 
     var body: some View {
         ZStack {
@@ -49,12 +50,22 @@ struct StatsView: View {
                         isLoading: viewModel.isLoading
                     )
                     summaryCard
+                    accountCard
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
             }
         }
         .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $isAccountSettingsPresented) {
+            AccountSettingsView()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .userDidSwitch)) { _ in
+            Task {
+                viewModel.reloadForCurrentUser()
+                await viewModel.load()
+            }
+        }
         .task {
             await viewModel.loadIfNeeded()
         }
@@ -123,6 +134,41 @@ struct StatsView: View {
                 summaryPill(title: "总阅读次数", value: "\(viewModel.stats.totalReadCount)")
                 summaryPill(title: "总句子数", value: "\(viewModel.stats.totalSentenceCount)")
             }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.95))
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 5)
+    }
+
+    private var accountCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("账号")
+                .font(.headline)
+
+            if let user = UserManager.shared.currentUser() {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(user.nickname?.isEmpty == false ? (user.nickname ?? "") : "已登录")
+                        .font(.body.weight(.semibold))
+                    if let phone = user.phone, !phone.isEmpty {
+                        Text(phone)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Button {
+                isAccountSettingsPresented = true
+            } label: {
+                Text("切换账号")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0.20, green: 0.49, blue: 0.93))
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
