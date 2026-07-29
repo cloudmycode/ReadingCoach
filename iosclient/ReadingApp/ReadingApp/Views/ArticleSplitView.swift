@@ -109,6 +109,10 @@ struct ArticleSplitView: View {
 
                 Spacer()
 
+                if selectedSidebarTab == .wordBook {
+                    WordBookSettingsMenu()
+                }
+
                 Button {
                     isStatsPresented = true
                 } label: {

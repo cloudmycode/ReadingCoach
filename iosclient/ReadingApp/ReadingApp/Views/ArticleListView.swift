@@ -85,14 +85,16 @@ struct ArticleListView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center) {
             Text(headerTitle)
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
             Spacer()
 
-            if viewModel.currentTab != "wordBook" {
+            if viewModel.currentTab == "wordBook" {
+                WordBookSettingsMenu()
+            } else {
                 Button {
                     isDraftPresented = true
                 } label: {

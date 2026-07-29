@@ -11,6 +11,30 @@ struct WordBookPlaybackOptions {
     }
 }
 
+struct WordBookSettingsMenu: View {
+    @AppStorage("wordBookAutoPlayWord") private var autoPlayWord = true
+    @AppStorage("wordBookAutoPlayWordTranslation") private var autoPlayWordTranslation = false
+    @AppStorage("wordBookAutoPlaySentence") private var autoPlaySentence = false
+    @AppStorage("wordBookAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false
+
+    var body: some View {
+        Menu {
+            Toggle("读单词", isOn: $autoPlayWord)
+            Toggle("读单词翻译", isOn: $autoPlayWordTranslation)
+            Toggle("读句子", isOn: $autoPlaySentence)
+            Toggle("读句子翻译", isOn: $autoPlaySentenceTranslation)
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
+                .frame(width: 36, height: 36)
+                .background(Color(red: 0.95, green: 0.97, blue: 1.0))
+                .clipShape(Circle())
+        }
+        .accessibilityLabel("生词本设置")
+    }
+}
+
 struct WordBookView: View {
     @ObservedObject var viewModel: WordBookViewModel
     var articleId: String? = nil
@@ -32,9 +56,15 @@ struct WordBookView: View {
         )
     }
 
+    private var showsInlineTitle: Bool {
+        articleTitle?.isEmpty == false
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            topBar
+            if showsInlineTitle {
+                topBar
+            }
 
             if viewModel.displayedEntries.isEmpty {
                 emptyState
@@ -131,31 +161,12 @@ struct WordBookView: View {
 
     private var topBar: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(
-                (articleTitle?.isEmpty == false)
-                ? articleTitle!
-                : "生词本"
-            )
-            .font(.system(size: 22, weight: .bold))
-            .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-            .lineLimit(2)
+            Text(articleTitle ?? "")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                .lineLimit(2)
 
             Spacer(minLength: 0)
-
-            Menu {
-                Toggle("读单词", isOn: $autoPlayWord)
-                Toggle("读单词翻译", isOn: $autoPlayWordTranslation)
-                Toggle("读句子", isOn: $autoPlaySentence)
-                Toggle("读句子翻译", isOn: $autoPlaySentenceTranslation)
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
-                    .frame(width: 36, height: 36)
-                    .background(Color(red: 0.95, green: 0.97, blue: 1.0))
-                    .clipShape(Circle())
-            }
-            .accessibilityLabel("生词本设置")
         }
         .padding(.horizontal, 24)
         .padding(.top, 18)
