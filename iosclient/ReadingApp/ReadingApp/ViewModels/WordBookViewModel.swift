@@ -186,7 +186,20 @@ final class WordBookViewModel: ObservableObject {
     func playSentence(_ entry: WordBookEntry, options: WordBookPlaybackOptions) async {
         stopPlaybackAll()
         selectEntry(entry)
-        await playEntry(entry, options: options)
+        await speakSentence(entry)
+        if options.playSentenceTranslation {
+            await speakSentenceTranslation(for: entry)
+        }
+    }
+
+    /// 点选单词：读英文单词（及设置中勾选的单词翻译），不走连续朗读的整套选项。
+    func playWordEntry(_ entry: WordBookEntry, options: WordBookPlaybackOptions) async {
+        stopPlaybackAll()
+        selectEntry(entry)
+        await speakWord(entry.word)
+        if options.playWordTranslation {
+            await speakWordTranslation(for: entry)
+        }
     }
 
     private func speakWord(_ word: String) async {

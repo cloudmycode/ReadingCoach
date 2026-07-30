@@ -47,6 +47,10 @@ struct WordBookView: View {
     @AppStorage("wordBookAutoPlaySentence") private var autoPlaySentence = false
     @AppStorage("wordBookAutoPlaySentenceTranslation") private var autoPlaySentenceTranslation = false
 
+    @State private var panelHeight: CGFloat = 360
+    @GestureState private var panelDragOffset: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 640
+
     private var playbackOptions: WordBookPlaybackOptions {
         WordBookPlaybackOptions(
             playWord: autoPlayWord,
@@ -60,68 +64,104 @@ struct WordBookView: View {
         articleTitle?.isEmpty == false
     }
 
+    private var isPanelVisible: Bool {
+        viewModel.selectedEntry != nil
+    }
+
+    private var currentPanelHeight: CGFloat {
+        clampedPanelHeight(panelHeight - panelDragOffset)
+    }
+
+    private var minimumPanelHeight: CGFloat {
+        280
+    }
+
+    private var maximumPanelHeight: CGFloat {
+        max(min(viewportHeight - 24, 620), minimumPanelHeight)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            if showsInlineTitle {
-                topBar
-            }
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.white
+                    .ignoresSafeArea()
 
-            if viewModel.displayedEntries.isEmpty {
-                emptyState
-            } else {
-                playbackBar
+                VStack(spacing: 0) {
+                    if showsInlineTitle {
+                        topBar
+                    }
 
-                List {
-                    ForEach(viewModel.displayedEntries) { entry in
-                        WordBookEntryCard(
-                            entry: entry,
-                            isSelected: viewModel.selectedEntryId == entry.id,
-                            showsOpenArticleButton: showsOpenArticleButton,
-                            onTapWord: {
-                                Task {
-                                    await viewModel.explainWord(
-                                        in: entry,
-                                        word: entry.word,
-                                        options: playbackOptions
-                                    )
-                                }
-                            },
-                            onTapSentence: {
-                                Task {
-                                    await viewModel.playSentence(entry, options: playbackOptions)
-                                }
-                            },
-                            onOpenArticle: {
-                                onOpenArticle(entry.articleId)
-                            },
-                            onDelete: {
-                                Task {
-                                    await viewModel.deleteEntry(entry)
+                    if viewModel.displayedEntries.isEmpty {
+                        emptyState
+                    } else {
+                        playbackBar
+
+                        List {
+                            ForEach(viewModel.displayedEntries) { entry in
+                                WordBookEntryCard(
+                                    entry: entry,
+                                    isSelected: viewModel.selectedEntryId == entry.id,
+                                    showsOpenArticleButton: showsOpenArticleButton,
+                                    onSelect: {
+                                        viewModel.selectEntry(entry)
+                                    },
+                                    onTapWord: {
+                                        Task {
+                                            await viewModel.playWordEntry(entry, options: playbackOptions)
+                                        }
+                                    },
+                                    onTapSentence: {
+                                        Task {
+                                            await viewModel.playSentence(entry, options: playbackOptions)
+                                        }
+                                    },
+                                    onOpenArticle: {
+                                        onOpenArticle(entry.articleId)
+                                    },
+                                    onDelete: {
+                                        Task {
+                                            await viewModel.deleteEntry(entry)
+                                        }
+                                    }
+                                )
+                                .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await viewModel.deleteEntry(entry)
+                                        }
+                                    } label: {
+                                        Label("删除", systemImage: "trash")
+                                    }
                                 }
                             }
-                        )
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                Task {
-                                    await viewModel.deleteEntry(entry)
-                                }
-                            } label: {
-                                Label("删除", systemImage: "trash")
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            if isPanelVisible {
+                                Color.clear.frame(height: currentPanelHeight - 8)
                             }
                         }
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
 
                 if let entry = viewModel.selectedEntry {
                     interactionPanel(for: entry)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .onAppear {
+                viewportHeight = geometry.size.height
+            }
+            .onChange(of: geometry.size.height) { _, newValue in
+                viewportHeight = newValue
+                panelHeight = clampedPanelHeight(panelHeight)
+            }
         }
+        .animation(.spring(response: 0.34, dampingFraction: 0.92), value: isPanelVisible)
         .task(id: articleId) {
             viewModel.setFilterArticleId(articleId)
             await viewModel.refreshEntries()
@@ -147,7 +187,7 @@ struct WordBookView: View {
                     .padding(.vertical, 10)
                     .background(Color.black.opacity(0.78))
                     .clipShape(Capsule())
-                    .padding(.bottom, 24)
+                    .padding(.bottom, isPanelVisible ? currentPanelHeight + 16 : 24)
                     .onTapGesture { viewModel.toastMessage = nil }
                     .task(id: toast) {
                         try? await Task.sleep(nanoseconds: 2_500_000_000)
@@ -229,76 +269,116 @@ struct WordBookView: View {
     }
 
     private func interactionPanel(for entry: WordBookEntry) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("查词与朗读")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
                 Spacer()
-                Button("关闭") {
+                Button {
                     viewModel.clearSelection()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
                 .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
             }
 
-            sentenceWordBar(entry)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    sentenceWordBar(entry)
 
-            if let word = viewModel.activeWord, !word.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(word)
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
-                        if !viewModel.activePartOfSpeech.isEmpty {
-                            Text(viewModel.activePartOfSpeech)
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                    if let word = viewModel.activeWord, !word.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Text(word)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))
+                                if !viewModel.activePartOfSpeech.isEmpty {
+                                    Text(viewModel.activePartOfSpeech)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                                }
+                            }
+                            if viewModel.isLoadingExplanation {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("翻译中")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(Color(red: 0.45, green: 0.52, blue: 0.62))
+                                }
+                                .padding(.top, 2)
+                            } else {
+                                if !viewModel.activeMeaning.isEmpty {
+                                    Text(viewModel.activeMeaning)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                                }
+                                if !viewModel.activeTip.isEmpty {
+                                    Text(viewModel.activeTip)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
+                                }
+                            }
                         }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
+                        )
                     }
-                    if viewModel.isLoadingExplanation {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("翻译中")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Color(red: 0.45, green: 0.52, blue: 0.62))
-                        }
-                        .padding(.top, 2)
-                    } else {
-                        if !viewModel.activeMeaning.isEmpty {
-                            Text(viewModel.activeMeaning)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-                        }
-                        if !viewModel.activeTip.isEmpty {
-                            Text(viewModel.activeTip)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
-                        }
+
+                    if !entry.sentenceTranslation.isEmpty {
+                        Text(entry.sentenceTranslation)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Color(red: 0.45, green: 0.52, blue: 0.62))
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(red: 0.97, green: 0.98, blue: 1.0))
-                )
-            }
-
-            if !entry.sentenceTranslation.isEmpty {
-                Text(entry.sentenceTranslation)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(red: 0.45, green: 0.52, blue: 0.62))
+                .padding(.bottom, 8)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 36)
+        .padding(.top, 18)
+        .padding(.bottom, 22)
+        .frame(maxWidth: .infinity)
+        .frame(height: currentPanelHeight, alignment: .top)
         .background(
-            Color.white
-                .shadow(color: Color.black.opacity(0.08), radius: 16, y: -4)
-                .ignoresSafeArea(edges: .bottom)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(Color.white)
         )
+        .background(alignment: .bottom) {
+            Color.white
+                .frame(height: 80)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .overlay(alignment: .top) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color(red: 0.86, green: 0.89, blue: 0.94))
+                .frame(width: 38, height: 5)
+                .padding(.top, 8)
+        }
+        .shadow(color: Color.black.opacity(0.12), radius: 30, x: 0, y: -6)
+        .padding(.bottom, -10)
+        .ignoresSafeArea(edges: .bottom)
+        .gesture(panelDragGesture)
+    }
+
+    private var panelDragGesture: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+            .updating($panelDragOffset) { value, state, _ in
+                state = value.translation.height
+            }
+            .onEnded { value in
+                panelHeight = clampedPanelHeight(panelHeight - value.translation.height)
+            }
+    }
+
+    private func clampedPanelHeight(_ proposedHeight: CGFloat) -> CGFloat {
+        min(max(proposedHeight, minimumPanelHeight), maximumPanelHeight)
     }
 
     private func sentenceWordBar(_ entry: WordBookEntry) -> some View {
@@ -347,6 +427,7 @@ private struct WordBookEntryCard: View {
     let entry: WordBookEntry
     let isSelected: Bool
     var showsOpenArticleButton: Bool = true
+    let onSelect: () -> Void
     let onTapWord: () -> Void
     let onTapSentence: () -> Void
     let onOpenArticle: () -> Void
@@ -421,15 +502,24 @@ private struct WordBookEntryCard: View {
             .buttonStyle(.plain)
         }
         .padding(16)
-        .background(Color.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(
+            isSelected
+            ? Color(red: 0.95, green: 0.97, blue: 1.0)
+            : Color.white
+        )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(
-                    isSelected ? Color(red: 0.0, green: 0.4, blue: 1.0).opacity(0.35) : Color(red: 0.92, green: 0.95, blue: 0.98),
+                    isSelected ? Color(red: 0.0, green: 0.4, blue: 1.0).opacity(0.45) : Color(red: 0.92, green: 0.95, blue: 0.98),
                     lineWidth: isSelected ? 1.5 : 1
                 )
         )
+        .onTapGesture {
+            onSelect()
+        }
     }
 }
 
