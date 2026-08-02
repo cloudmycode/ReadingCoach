@@ -236,14 +236,17 @@
 
 ---
 
-## 4.6 学习统计
+## 4.6 学习统计与时长
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/stats/overview?days=14` | 学习概览与近 N 天每日数据（默认 7，最大 30） |
+| POST | `/api/stats/review-duration` | 上报复习有效秒数：`{"seconds":15}` |
+| POST | `/api/articles/:id/read-duration` | 上报文章有效阅读秒数：`{"seconds":15}` |
 
-返回字段包括：`today_new_articles`、`today_review_count`（当日复习单词数）、`current_streak_days`、`total_articles`、`total_read_count`、`total_sentence_count`，以及 `recent_days[]`（`date` / `new_articles` / `review_count` / `active`）。  
-`review_count` 按 `user_word_review_logs` 按日计数。Web / iOS「每日复习详情」可再结合 `/api/review/tasks?status=completed` 展示当天单词与 `result`。
+概览额外返回：`today_read_seconds`、`today_review_seconds`、`total_read_seconds`、`average_reading_speed_wpm`，以及 `recent_days[]` 中的 `read_seconds` / `review_seconds`。  
+文章列表/详情返回 `read_seconds`、`word_count`、`reading_speed_wpm`（阅读满 30 秒后按词数估算）。  
+客户端在文章详情 / 词卡会话前台心跳上报秒数（空闲约 60 秒暂停）。`review_count` 仍按复习日志按日计数。
 
 ---
 

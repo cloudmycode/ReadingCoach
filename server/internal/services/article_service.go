@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -203,10 +204,13 @@ func (s *ArticleService) SaveAnalyzedArticle(
 
 // ArticleDetail 文章详情结构
 type ArticleDetail struct {
-	ArticleID     int64             `json:"article_id"`
-	Title         string            `json:"title"`
-	SentenceCount int               `json:"sentence_count"`
-	Sentences     []ArticleSentence `json:"sentences"`
+	ArticleID       int64             `json:"article_id"`
+	Title           string            `json:"title"`
+	SentenceCount   int               `json:"sentence_count"`
+	WordCount       int               `json:"word_count"`
+	ReadSeconds     int               `json:"read_seconds"`
+	ReadingSpeedWPM *int              `json:"reading_speed_wpm,omitempty"`
+	Sentences       []ArticleSentence `json:"sentences"`
 }
 
 // ArticleSentence 文章句子结构
@@ -276,13 +280,15 @@ func (s *ArticleService) UpdateSentenceContent(
 
 // ArticleSummary 文章列表项
 type ArticleSummary struct {
-	ArticleID     int64      `json:"article_id"`
-	Title         string     `json:"title"`
-	SentenceCount int        `json:"sentence_count"`
-	WordCount     int        `json:"word_count"`
-	ReadCount     int        `json:"read_count"`
-	CreatedAt     time.Time  `json:"created_at"`
-	LastReadAt    *time.Time `json:"last_read_at,omitempty"`
+	ArticleID       int64      `json:"article_id"`
+	Title           string     `json:"title"`
+	SentenceCount   int        `json:"sentence_count"`
+	WordCount       int        `json:"word_count"`
+	ReadCount       int        `json:"read_count"`
+	ReadSeconds     int        `json:"read_seconds"`
+	ReadingSpeedWPM *int       `json:"reading_speed_wpm,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastReadAt      *time.Time `json:"last_read_at,omitempty"`
 }
 
 // GetArticleDetail 根据文章ID获取文章详情（包括所有句子）
@@ -294,13 +300,19 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 		return nil, fmt.Errorf("invalid article id")
 	}
 
+	if err := s.ensureArticleReadSecondsColumn(ctx); err != nil {
+		return nil, err
+	}
+
 	// 查询文章基本信息
 	var title string
 	var sentenceCount int
+	var readSeconds int
 	row := s.db.QueryRowContext(ctx,
-		`SELECT title, sentence_count FROM articles WHERE article_id = ? AND user_id = ?`,
+		`SELECT title, sentence_count, COALESCE(read_seconds, 0)
+		 FROM articles WHERE article_id = ? AND user_id = ?`,
 		articleID, userID)
-	if err := row.Scan(&title, &sentenceCount); err != nil {
+	if err := row.Scan(&title, &sentenceCount, &readSeconds); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("article not found")
 		}
@@ -340,11 +352,19 @@ func (s *ArticleService) GetArticleDetail(ctx context.Context, articleID int64, 
 		return nil, fmt.Errorf("iterate sentences: %w", err)
 	}
 
+	wordCount := 0
+	for _, sentence := range sentences {
+		wordCount += len(articleWordPattern.FindAllString(sentence.Original, -1))
+	}
+
 	return &ArticleDetail{
-		ArticleID:     articleID,
-		Title:         title,
-		SentenceCount: sentenceCount,
-		Sentences:     sentences,
+		ArticleID:       articleID,
+		Title:           title,
+		SentenceCount:   sentenceCount,
+		WordCount:       wordCount,
+		ReadSeconds:     readSeconds,
+		ReadingSpeedWPM: readingSpeedWPM(wordCount, readSeconds),
+		Sentences:       sentences,
 	}, nil
 }
 
@@ -797,6 +817,94 @@ func (s *ArticleService) UpdateArticleReadStats(ctx context.Context, articleID i
 	return nil
 }
 
+const maxDurationReportSeconds = 120
+
+// AddArticleReadDuration 累加文章有效阅读秒数，并计入当日阅读时长。
+func (s *ArticleService) AddArticleReadDuration(ctx context.Context, articleID int64, userID int, seconds int) (int, error) {
+	if err := s.validateService(); err != nil {
+		return 0, err
+	}
+	if articleID <= 0 || userID <= 0 {
+		return 0, fmt.Errorf("invalid article id or user id")
+	}
+	seconds = normalizeDurationSeconds(seconds)
+	if seconds == 0 {
+		return 0, fmt.Errorf("invalid duration seconds")
+	}
+	if err := s.ensureArticleReadSecondsColumn(ctx); err != nil {
+		return 0, err
+	}
+	if err := s.ensureStudyLogTable(ctx); err != nil {
+		return 0, err
+	}
+
+	now := time.Now()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE articles
+		SET read_seconds = COALESCE(read_seconds, 0) + ?,
+		    last_read_at = ?,
+		    updated_at = NOW()
+		WHERE article_id = ? AND user_id = ?
+	`, seconds, now, articleID, userID)
+	if err != nil {
+		return 0, fmt.Errorf("add article read duration: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read article duration result: %w", err)
+	}
+	if affected == 0 {
+		return 0, fmt.Errorf("article not found")
+	}
+
+	_ = recordStudyDuration(ctx, s.db, userID, now, seconds, 0)
+
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(read_seconds, 0)
+		FROM articles
+		WHERE article_id = ? AND user_id = ?
+	`, articleID, userID).Scan(&total); err != nil {
+		return seconds, nil
+	}
+	return total, nil
+}
+
+func (s *ArticleService) ensureArticleReadSecondsColumn(ctx context.Context) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		ALTER TABLE articles
+		ADD COLUMN read_seconds INT NOT NULL DEFAULT 0 COMMENT '累计有效阅读秒数' AFTER read_count
+	`)
+	if err != nil && !isIgnorableSchemaError(err) {
+		return fmt.Errorf("ensure articles.read_seconds: %w", err)
+	}
+	return nil
+}
+
+func readingSpeedWPM(wordCount, readSeconds int) *int {
+	if wordCount <= 0 || readSeconds < 30 {
+		return nil
+	}
+	wpm := int(math.Round(float64(wordCount) / (float64(readSeconds) / 60.0)))
+	if wpm <= 0 {
+		return nil
+	}
+	return &wpm
+}
+
+func normalizeDurationSeconds(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	if seconds > maxDurationReportSeconds {
+		return maxDurationReportSeconds
+	}
+	return seconds
+}
+
 // ListUserArticles 获取用户的文章列表
 func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit, offset int) ([]ArticleSummary, error) {
 	if err := s.validateService(); err != nil {
@@ -812,12 +920,17 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 		offset = 0
 	}
 
+	if err := s.ensureArticleReadSecondsColumn(ctx); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT 
 			article_id,
 			title,
 			sentence_count,
 			read_count,
+			COALESCE(read_seconds, 0),
 			created_at,
 			last_read_at
 		FROM articles
@@ -839,6 +952,7 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 			&summary.Title,
 			&summary.SentenceCount,
 			&summary.ReadCount,
+			&summary.ReadSeconds,
 			&summary.CreatedAt,
 			&lastRead,
 		); err != nil {
@@ -855,6 +969,9 @@ func (s *ArticleService) ListUserArticles(ctx context.Context, userID int, limit
 	}
 	if err := s.populateArticleWordCounts(ctx, summaries); err != nil {
 		return nil, err
+	}
+	for i := range summaries {
+		summaries[i].ReadingSpeedWPM = readingSpeedWPM(summaries[i].WordCount, summaries[i].ReadSeconds)
 	}
 
 	return summaries, nil
@@ -980,4 +1097,3 @@ func (s *ArticleService) UpdateArticleTitle(ctx context.Context, articleID int64
 	}
 	return title, nil
 }
-

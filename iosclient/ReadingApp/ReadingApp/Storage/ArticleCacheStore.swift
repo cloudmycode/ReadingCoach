@@ -59,6 +59,9 @@ final class ArticleCacheStore {
                 articleId: detail.articleId,
                 title: title,
                 sentenceCount: detail.sentenceCount,
+                wordCount: detail.wordCount,
+                readSeconds: detail.readSeconds,
+                readingSpeedWpm: detail.readingSpeedWpm,
                 sentences: detail.sentences
             )
             guard let data = try? JSONEncoder().encode(details) else { return }

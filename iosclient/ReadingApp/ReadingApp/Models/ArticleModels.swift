@@ -26,6 +26,8 @@ struct ArticleItem: Codable, Identifiable, Hashable {
     let sentenceCount: Int
     let wordCount: Int
     let readCount: Int
+    let readSeconds: Int
+    let readingSpeedWpm: Int?
     let createdAt: String
     let lastReadAt: String?
     
@@ -36,6 +38,8 @@ struct ArticleItem: Codable, Identifiable, Hashable {
         case sentenceCount = "sentence_count"
         case wordCount = "word_count"
         case readCount = "read_count"
+        case readSeconds = "read_seconds"
+        case readingSpeedWpm = "reading_speed_wpm"
         case createdAt = "created_at"
         case lastReadAt = "last_read_at"
     }
@@ -48,6 +52,8 @@ struct ArticleItem: Codable, Identifiable, Hashable {
         sentenceCount = try container.decodeIfPresent(Int.self, forKey: .sentenceCount) ?? 0
         wordCount = try container.decodeIfPresent(Int.self, forKey: .wordCount) ?? 0
         readCount = try container.decodeIfPresent(Int.self, forKey: .readCount) ?? 0
+        readSeconds = try container.decodeIfPresent(Int.self, forKey: .readSeconds) ?? 0
+        readingSpeedWpm = try container.decodeIfPresent(Int.self, forKey: .readingSpeedWpm)
         createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
         lastReadAt = try container.decodeIfPresent(String.self, forKey: .lastReadAt)
     }
@@ -59,6 +65,8 @@ struct ArticleItem: Codable, Identifiable, Hashable {
         sentenceCount: Int,
         wordCount: Int,
         readCount: Int,
+        readSeconds: Int = 0,
+        readingSpeedWpm: Int? = nil,
         createdAt: String,
         lastReadAt: String?
     ) {
@@ -68,8 +76,21 @@ struct ArticleItem: Codable, Identifiable, Hashable {
         self.sentenceCount = sentenceCount
         self.wordCount = wordCount
         self.readCount = readCount
+        self.readSeconds = readSeconds
+        self.readingSpeedWpm = readingSpeedWpm
         self.createdAt = createdAt
         self.lastReadAt = lastReadAt
+    }
+
+    var readingMetaDisplay: String {
+        var parts = ["\(wordCount) words"]
+        if readSeconds > 0 {
+            parts.append(StudyDurationFormat.minutesText(readSeconds))
+        }
+        if let readingSpeedWpm {
+            parts.append("\(readingSpeedWpm) 词/分")
+        }
+        return parts.joined(separator: "  •  ")
     }
     
     // 格式化日期显示
@@ -103,19 +124,36 @@ struct ArticleDetailResponse: Codable {
     let articleId: Int
     let title: String
     let sentenceCount: Int
+    let wordCount: Int
+    let readSeconds: Int
+    let readingSpeedWpm: Int?
     let sentences: [ArticleSentence]
     
     enum CodingKeys: String, CodingKey {
         case articleId = "article_id"
         case title
         case sentenceCount = "sentence_count"
+        case wordCount = "word_count"
+        case readSeconds = "read_seconds"
+        case readingSpeedWpm = "reading_speed_wpm"
         case sentences
     }
 
-    init(articleId: Int, title: String, sentenceCount: Int, sentences: [ArticleSentence]) {
+    init(
+        articleId: Int,
+        title: String,
+        sentenceCount: Int,
+        wordCount: Int = 0,
+        readSeconds: Int = 0,
+        readingSpeedWpm: Int? = nil,
+        sentences: [ArticleSentence]
+    ) {
         self.articleId = articleId
         self.title = title
         self.sentenceCount = sentenceCount
+        self.wordCount = wordCount
+        self.readSeconds = readSeconds
+        self.readingSpeedWpm = readingSpeedWpm
         self.sentences = sentences
     }
 
@@ -125,6 +163,9 @@ struct ArticleDetailResponse: Codable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
         sentences = try container.decodeIfPresent([ArticleSentence].self, forKey: .sentences) ?? []
         sentenceCount = try container.decodeIfPresent(Int.self, forKey: .sentenceCount) ?? sentences.count
+        wordCount = try container.decodeIfPresent(Int.self, forKey: .wordCount) ?? 0
+        readSeconds = try container.decodeIfPresent(Int.self, forKey: .readSeconds) ?? 0
+        readingSpeedWpm = try container.decodeIfPresent(Int.self, forKey: .readingSpeedWpm)
     }
 }
 

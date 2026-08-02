@@ -19,4 +19,19 @@ struct StatsAPI {
             responseType: StudyStatsResponse.self
         )
     }
+
+    func reportReviewDuration(seconds: Int) async throws {
+        struct DurationResponse: Decodable {
+            let reviewSeconds: Int?
+            enum CodingKeys: String, CodingKey {
+                case reviewSeconds = "review_seconds"
+            }
+        }
+        _ = try await networkManager.request(
+            endpoint: "stats/review-duration",
+            method: "POST",
+            body: ["seconds": seconds],
+            responseType: DurationResponse.self
+        )
+    }
 }

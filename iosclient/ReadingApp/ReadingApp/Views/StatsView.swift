@@ -30,12 +30,22 @@ struct StatsView: View {
                     topBar
                     overviewCards
                     StatsTrendChartCard(
-                        title: "文章趋势",
-                        subtitle: "近 14 天每日新读篇数",
-                        unit: "篇",
+                        title: "阅读时长",
+                        subtitle: "近 14 天每日阅读分钟数",
+                        unit: "分",
                         accent: Color(red: 0.20, green: 0.49, blue: 0.93),
                         values: viewModel.stats.recentDays.map {
-                            StatsTrendPoint(date: $0.date, count: $0.newArticles)
+                            StatsTrendPoint(date: $0.date, count: ($0.readSeconds + 59) / 60)
+                        },
+                        isLoading: viewModel.isLoading
+                    )
+                    StatsTrendChartCard(
+                        title: "复习时长",
+                        subtitle: "近 14 天每日复习分钟数",
+                        unit: "分",
+                        accent: Color(red: 0.64, green: 0.42, blue: 0.90),
+                        values: viewModel.stats.recentDays.map {
+                            StatsTrendPoint(date: $0.date, count: ($0.reviewSeconds + 59) / 60)
                         },
                         isLoading: viewModel.isLoading
                     )
@@ -43,7 +53,7 @@ struct StatsView: View {
                         title: "单词复习",
                         subtitle: "近 14 天每日复习单词数量",
                         unit: "词",
-                        accent: Color(red: 0.64, green: 0.42, blue: 0.90),
+                        accent: Color(red: 0.96, green: 0.52, blue: 0.18),
                         values: viewModel.stats.recentDays.map {
                             StatsTrendPoint(date: $0.date, count: $0.reviewCount)
                         },
@@ -114,13 +124,33 @@ struct StatsView: View {
     private var overviewCards: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                statCard(title: "今日新读", value: "\(viewModel.stats.todayNewArticles)", subtitle: "篇文章", accent: Color(red: 0.04, green: 0.65, blue: 0.35))
-                statCard(title: "连续坚持", value: "\(viewModel.stats.currentStreakDays)", subtitle: "天", accent: Color(red: 0.96, green: 0.52, blue: 0.18))
+                statCard(
+                    title: "今日阅读",
+                    value: StudyDurationFormat.minutesText(viewModel.stats.todayReadSeconds),
+                    subtitle: "有效时长",
+                    accent: Color(red: 0.04, green: 0.65, blue: 0.35)
+                )
+                statCard(
+                    title: "今日复习",
+                    value: StudyDurationFormat.minutesText(viewModel.stats.todayReviewSeconds),
+                    subtitle: "\(viewModel.stats.todayReviewCount) 个生词",
+                    accent: Color(red: 0.64, green: 0.42, blue: 0.90)
+                )
             }
 
             HStack(spacing: 12) {
-                statCard(title: "累计文章", value: "\(viewModel.stats.totalArticles)", subtitle: "篇", accent: Color(red: 0.20, green: 0.49, blue: 0.93))
-                statCard(title: "今日复习", value: "\(viewModel.stats.todayReviewCount)", subtitle: "个生词", accent: Color(red: 0.64, green: 0.42, blue: 0.90))
+                statCard(
+                    title: "阅读速度",
+                    value: viewModel.stats.averageReadingSpeedWpm.map { "\($0)" } ?? "—",
+                    subtitle: "词/分钟",
+                    accent: Color(red: 0.20, green: 0.49, blue: 0.93)
+                )
+                statCard(
+                    title: "连续坚持",
+                    value: "\(viewModel.stats.currentStreakDays)",
+                    subtitle: "天",
+                    accent: Color(red: 0.96, green: 0.52, blue: 0.18)
+                )
             }
         }
     }
@@ -130,6 +160,10 @@ struct StatsView: View {
             Text("累计学习")
                 .font(.headline)
 
+            HStack {
+                summaryPill(title: "累计文章", value: "\(viewModel.stats.totalArticles)")
+                summaryPill(title: "总阅读时长", value: StudyDurationFormat.minutesText(viewModel.stats.totalReadSeconds))
+            }
             HStack {
                 summaryPill(title: "总阅读次数", value: "\(viewModel.stats.totalReadCount)")
                 summaryPill(title: "总句子数", value: "\(viewModel.stats.totalSentenceCount)")

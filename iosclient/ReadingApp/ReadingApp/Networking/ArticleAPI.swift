@@ -35,6 +35,21 @@ struct ArticleAPI {
             responseType: ArticleDetailResponse.self
         )
     }
+
+    func reportReadDuration(articleId: String, seconds: Int) async throws {
+        struct DurationResponse: Decodable {
+            let readSeconds: Int?
+            enum CodingKeys: String, CodingKey {
+                case readSeconds = "read_seconds"
+            }
+        }
+        _ = try await networkManager.request(
+            endpoint: "articles/\(articleId)/read-duration",
+            method: "POST",
+            body: ["seconds": seconds],
+            responseType: DurationResponse.self
+        )
+    }
     
     func deleteArticle(articleId: String) async throws {
         // 对于 DELETE 请求，我们只需要确保没有错误即可

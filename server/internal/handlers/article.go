@@ -129,6 +129,57 @@ func (h *ArticleHandler) GetArticleDetail(c *gin.Context) {
 	jsonOK(c, "获取成功", detail)
 }
 
+type reportReadDurationReq struct {
+	Seconds int `json:"seconds"`
+}
+
+// ReportReadDuration 上报文章有效阅读时长（心跳累计秒数）。
+func (h *ArticleHandler) ReportReadDuration(c *gin.Context) {
+	if h.articleService == nil {
+		jsonError(c, http.StatusServiceUnavailable, "文章服务未配置")
+		return
+	}
+
+	encryptedID := c.Param("id")
+	articleID, err := utils.DecryptID(encryptedID)
+	if err != nil {
+		jsonError(c, http.StatusBadRequest, "无效的文章ID")
+		return
+	}
+
+	userID := getUserID(c)
+	if userID == 0 {
+		return
+	}
+
+	var req reportReadDurationReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonError(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+
+	total, err := h.articleService.AddArticleReadDuration(c.Request.Context(), articleID, userID, req.Seconds)
+	if err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "not found"):
+			jsonError(c, http.StatusNotFound, "文章不存在")
+		case strings.Contains(msg, "invalid duration"):
+			jsonError(c, http.StatusBadRequest, "时长无效")
+		default:
+			logger.Error("❌ 上报文章阅读时长失败 article=%d user=%d: %v", articleID, userID, err)
+			jsonError(c, http.StatusInternalServerError, "上报阅读时长失败")
+		}
+		return
+	}
+
+	jsonOK(c, "已记录", gin.H{
+		"article_id":   articleID,
+		"read_seconds": total,
+		"added":        req.Seconds,
+	})
+}
+
 // ListArticles 获取文章列表
 func (h *ArticleHandler) ListArticles(c *gin.Context) {
 	if h.articleService == nil {
@@ -158,16 +209,21 @@ func (h *ArticleHandler) ListArticles(c *gin.Context) {
 		if article.LastReadAt != nil {
 			lastRead = article.LastReadAt.Format(time.RFC3339)
 		}
-		items = append(items, gin.H{
+		item := gin.H{
 			"id":             utils.EncryptID(article.ArticleID),
 			"article_id":     article.ArticleID,
 			"title":          article.Title,
 			"sentence_count": article.SentenceCount,
 			"word_count":     article.WordCount,
 			"read_count":     article.ReadCount,
+			"read_seconds":   article.ReadSeconds,
 			"created_at":     article.CreatedAt.Format(time.RFC3339),
 			"last_read_at":   lastRead,
-		})
+		}
+		if article.ReadingSpeedWPM != nil {
+			item["reading_speed_wpm"] = *article.ReadingSpeedWPM
+		}
+		items = append(items, item)
 	}
 
 	jsonOK(c, "获取成功", gin.H{

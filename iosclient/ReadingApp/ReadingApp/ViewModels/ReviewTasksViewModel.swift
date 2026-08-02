@@ -21,6 +21,7 @@ final class ReviewTasksViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isSubmitting = false
     @Published var toastMessage: String?
+    private var reviewDurationTracker: StudyDurationTracker?
 
     var currentSessionTask: WordReviewTaskItem? {
         guard sessionIndex >= 0, sessionIndex < sessionQueue.count else { return nil }
@@ -31,6 +32,11 @@ final class ReviewTasksViewModel: ObservableObject {
         guard !sessionQueue.isEmpty else { return "0 / 0" }
         let current = min(sessionIndex + 1, sessionQueue.count)
         return "\(current) / \(sessionQueue.count)"
+    }
+
+    /// 是否有待完成的复习任务（用于任务 Tab 红点）。
+    var hasPendingTasks: Bool {
+        !pendingTasks.isEmpty
     }
 
     /// 已完成任务按本地日历日分组（新→旧）。
@@ -92,10 +98,20 @@ final class ReviewTasksViewModel: ObservableObject {
         masteredInSession = 0
         againInSession = 0
         isSessionPresented = true
+        startReviewDurationTracking()
     }
 
     func revealMeaning() {
         isRevealed = true
+        reviewDurationTracker?.noteInteraction()
+    }
+
+    func noteReviewInteraction() {
+        reviewDurationTracker?.noteInteraction()
+    }
+
+    func setReviewAppActive(_ active: Bool) {
+        reviewDurationTracker?.setAppActive(active)
     }
 
     func submitCurrent(result: String) async {
@@ -121,6 +137,7 @@ final class ReviewTasksViewModel: ObservableObject {
     }
 
     func closeSession() {
+        stopReviewDurationTracking()
         isSessionPresented = false
         isSessionFinished = false
         isRevealed = false
@@ -132,6 +149,7 @@ final class ReviewTasksViewModel: ObservableObject {
     }
 
     private func advanceAfterSubmit() {
+        reviewDurationTracker?.noteInteraction()
         let next = sessionIndex + 1
         if next >= sessionQueue.count {
             isSessionFinished = true
@@ -140,6 +158,19 @@ final class ReviewTasksViewModel: ObservableObject {
         }
         sessionIndex = next
         isRevealed = false
+    }
+
+    private func startReviewDurationTracking() {
+        stopReviewDurationTracking()
+        reviewDurationTracker = StudyDurationTracker { seconds in
+            try? await StatsAPI.shared.reportReviewDuration(seconds: seconds)
+        }
+        reviewDurationTracker?.start()
+    }
+
+    private func stopReviewDurationTracking() {
+        reviewDurationTracker?.stop()
+        reviewDurationTracker = nil
     }
 }
 

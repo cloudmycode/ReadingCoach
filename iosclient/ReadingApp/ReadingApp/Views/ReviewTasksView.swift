@@ -371,6 +371,7 @@ struct WordReviewSessionView: View {
 
     @AppStorage("reviewAutoPlayWord") private var autoPlayWord = false
     @AppStorage("reviewAutoPlaySentence") private var autoPlaySentence = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var autoPlayTask: Task<Void, Never>?
 
     var body: some View {
@@ -391,8 +392,13 @@ struct WordReviewSessionView: View {
         }
         .onAppear {
             scheduleAutoPlay()
+            viewModel.noteReviewInteraction()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            viewModel.setReviewAppActive(phase == .active)
         }
         .onChange(of: viewModel.sessionIndex) { _, _ in
+            viewModel.noteReviewInteraction()
             scheduleAutoPlay()
         }
         .onChange(of: viewModel.isSessionFinished) { _, finished in

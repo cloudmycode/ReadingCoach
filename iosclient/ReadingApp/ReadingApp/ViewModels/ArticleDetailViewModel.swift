@@ -17,6 +17,9 @@ final class ArticleDetailViewModel: ObservableObject {
 
     @Published var title: String
     @Published var sentences: [ArticleSentence] = []
+    @Published var wordCount: Int = 0
+    @Published var readSeconds: Int = 0
+    @Published var readingSpeedWpm: Int?
     @Published var isLoading: Bool = false
     @Published var toastMessage: String?
     @Published var isPlaying: Bool = false
@@ -29,11 +32,30 @@ final class ArticleDetailViewModel: ObservableObject {
     private var audioTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
     private var continuousPlaybackStartIndex = 0
+    private var durationTracker: StudyDurationTracker?
+
+    var readingMetaText: String {
+        var parts: [String] = []
+        if wordCount > 0 {
+            parts.append("\(wordCount) 词")
+        }
+        if readSeconds > 0 {
+            parts.append(StudyDurationFormat.minutesText(readSeconds))
+        }
+        if let readingSpeedWpm {
+            parts.append("\(readingSpeedWpm) 词/分")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     init(articleId: String, initialTitle: String) {
         self.articleId = articleId
         if let cachedDetail = ArticleCacheStore.shared.cachedArticleDetail(articleId: articleId) {
             self.title = cachedDetail.title.isEmpty ? initialTitle : cachedDetail.title
             self.sentences = cachedDetail.sentences
+            self.wordCount = cachedDetail.wordCount
+            self.readSeconds = cachedDetail.readSeconds
+            self.readingSpeedWpm = cachedDetail.readingSpeedWpm
             scheduleSentenceAudioPreload()
         } else {
             self.title = initialTitle
@@ -52,6 +74,7 @@ final class ArticleDetailViewModel: ObservableObject {
         guard !hasLoaded else { return }
         await loadArticle()
         hasLoaded = true
+        startReadingDurationTracking()
     }
     
     func loadArticle() async {
@@ -63,11 +86,45 @@ final class ArticleDetailViewModel: ObservableObject {
             let detail = try await ArticleAPI.shared.getArticleDetail(articleId: articleId)
             title = detail.title
             sentences = detail.sentences
+            wordCount = detail.wordCount
+            readSeconds = detail.readSeconds
+            readingSpeedWpm = detail.readingSpeedWpm
             ArticleCacheStore.shared.saveArticleDetail(detail, articleId: articleId)
             scheduleSentenceAudioPreload()
         } catch {
             toastMessage = error.localizedDescription
         }
+    }
+
+    func noteReadingInteraction() {
+        durationTracker?.noteInteraction()
+    }
+
+    func setReadingAppActive(_ active: Bool) {
+        durationTracker?.setAppActive(active)
+    }
+
+    func stopReadingDurationTracking() {
+        durationTracker?.stop()
+        durationTracker = nil
+    }
+
+    private func startReadingDurationTracking() {
+        stopReadingDurationTracking()
+        let trackedArticleId = articleId
+        durationTracker = StudyDurationTracker { [weak self] seconds in
+            guard let self else { return }
+            do {
+                try await ArticleAPI.shared.reportReadDuration(articleId: trackedArticleId, seconds: seconds)
+                self.readSeconds += seconds
+                if self.readSeconds >= 30, self.wordCount > 0 {
+                    self.readingSpeedWpm = Int((Double(self.wordCount) / (Double(self.readSeconds) / 60.0)).rounded())
+                }
+            } catch {
+                // 时长上报失败不打断阅读
+            }
+        }
+        durationTracker?.start()
     }
     
     func explainWord(sentenceId: Int, word: String) async throws -> SentenceWordExplanationResponse {
@@ -118,6 +175,9 @@ final class ArticleDetailViewModel: ObservableObject {
                 articleId: cachedNumericArticleId,
                 title: title,
                 sentenceCount: sentences.count,
+                wordCount: wordCount,
+                readSeconds: readSeconds,
+                readingSpeedWpm: readingSpeedWpm,
                 sentences: sentences
             ),
             articleId: articleId

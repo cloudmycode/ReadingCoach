@@ -7,6 +7,13 @@
           <h2>{{ article?.title || "文章详情" }}</h2>
           <p v-if="article" class="muted">
             {{ article.sentence_count }} 句
+            <template v-if="article.word_count"> · {{ article.word_count }} 词</template>
+            <template v-if="article.read_seconds">
+              · {{ formatDurationMinutes(article.read_seconds) }}
+            </template>
+            <template v-if="article.reading_speed_wpm">
+              · {{ article.reading_speed_wpm }} 词/分
+            </template>
           </p>
         </div>
         <div v-if="article" class="actions">
@@ -78,17 +85,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import {
   deleteArticle,
   getArticleDetail,
+  reportReadDuration,
   updateArticleTitle,
   updateSentence,
 } from "../api/articles";
+import { formatDurationMinutes } from "../api/stats";
 import { ApiError } from "../api/client";
 import type { ArticleDetail } from "../types/api";
+import { StudyDurationTracker } from "../utils/studyDurationTracker";
 
 const route = useRoute();
 const router = useRouter();
@@ -101,8 +111,32 @@ const titleDraft = ref("");
 const editingSentenceId = ref<number | null>(null);
 const sentenceDraft = ref("");
 const savingSentence = ref(false);
+let durationTracker: StudyDurationTracker | null = null;
 
 const articleId = () => String(route.params.id);
+
+function stopDurationTracking() {
+  durationTracker?.stop();
+  durationTracker = null;
+}
+
+function startDurationTracking() {
+  stopDurationTracking();
+  const id = articleId();
+  durationTracker = new StudyDurationTracker(async (seconds) => {
+    const result = await reportReadDuration(id, seconds);
+    if (article.value) {
+      article.value.read_seconds = result.read_seconds;
+      const words = article.value.word_count || 0;
+      if (words > 0 && result.read_seconds >= 30) {
+        article.value.reading_speed_wpm = Math.round(
+          words / (result.read_seconds / 60),
+        );
+      }
+    }
+  });
+  durationTracker.start();
+}
 
 async function loadDetail() {
   loading.value = true;
@@ -110,6 +144,7 @@ async function loadDetail() {
 
   try {
     article.value = await getArticleDetail(articleId());
+    startDurationTracking();
   } catch (error) {
     errorMessage.value =
       error instanceof ApiError ? error.message : "加载失败";
@@ -199,4 +234,5 @@ async function saveSentence(sentenceId: number) {
 }
 
 onMounted(loadDetail);
+onUnmounted(stopDurationTracking);
 </script>

@@ -22,6 +22,19 @@ export async function getArticleDetail(id: string): Promise<ArticleDetail> {
   return apiRequest<ArticleDetail>(`/api/articles/${encodeURIComponent(id)}`);
 }
 
+export async function reportReadDuration(
+  id: string,
+  seconds: number,
+): Promise<{ read_seconds: number }> {
+  return apiRequest<{ read_seconds: number }>(
+    `/api/articles/${encodeURIComponent(id)}/read-duration`,
+    {
+      method: "POST",
+      body: JSON.stringify({ seconds }),
+    },
+  );
+}
+
 export async function processArticleText(text: string): Promise<ProcessArticleData> {
   return apiRequest<ProcessArticleData>("/api/articles/process-text", {
     method: "POST",

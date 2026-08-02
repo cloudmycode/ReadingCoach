@@ -12,6 +12,7 @@ struct ArticleDetailView: View {
     @StateObject private var speechInput = SpeechInputManager()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
+    @Environment(\.scenePhase) private var scenePhase
     private let showsBackButton: Bool
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
@@ -40,6 +41,10 @@ struct ArticleDetailView: View {
     }
 
     var body: some View {
+        readingLifecycleAttached
+    }
+
+    private var rootStack: some View {
         ZStack(alignment: .bottom) {
             Color.white
                 .ignoresSafeArea()
@@ -54,41 +59,89 @@ struct ArticleDetailView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .task {
-            await viewModel.loadArticleIfNeeded()
-        }
-        .onChange(of: viewModel.currentSentenceIndex) { _, newValue in
-            if let newValue {
-                selectedSentenceIndex = newValue
-                pendingScrollSentenceIndex = newValue
+    }
+
+    private var readingInteractionGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                viewModel.noteReadingInteraction()
             }
-        }
-        .onChange(of: activeSentence?.id ?? "") { _, _ in
-            refreshInteractivePanel()
-        }
-        .onChange(of: speechInput.transcript) { _, transcript in
-            questionDraft = [questionBeforeSpeech, transcript]
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-        }
-        .onChange(of: speechInput.errorMessage) { _, message in
-            guard let message else { return }
-            viewModel.toastMessage = message
-            speechInput.clearError()
-        }
-        .onDisappear {
-            isNavigatingBack = false
-            speechInput.cancelRecording()
-            viewModel.stopVoiceReading()
-        }
-        .alert(viewModel.toastMessage ?? "", isPresented: Binding(
+    }
+
+    private var readingInteractionAttached: some View {
+        rootStack
+            .onChange(of: scenePhase, handleScenePhaseChange)
+            .onChange(of: viewModel.currentSentenceIndex, handleCurrentSentenceIndexChange)
+            .simultaneousGesture(readingInteractionGesture)
+    }
+
+    private var panelAndSpeechAttached: some View {
+        readingInteractionAttached
+            .onChange(of: activeSentenceID, handleActiveSentenceChange)
+            .onChange(of: speechInput.transcript, handleSpeechTranscriptChange)
+            .onChange(of: speechInput.errorMessage, handleSpeechErrorChange)
+    }
+
+    private var readingLifecycleAttached: some View {
+        panelAndSpeechAttached
+            .navigationBarBackButtonHidden(true)
+            .task {
+                await viewModel.loadArticleIfNeeded()
+            }
+            .onDisappear(perform: handleDisappear)
+            .alert(
+                viewModel.toastMessage ?? "",
+                isPresented: toastBinding
+            ) {
+                Button("确定", role: .cancel) { viewModel.toastMessage = nil }
+            }
+            .animation(.spring(response: 0.34, dampingFraction: 0.92), value: isPanelVisible)
+    }
+
+    private var activeSentenceID: String {
+        activeSentence?.id ?? ""
+    }
+
+    private var toastBinding: Binding<Bool> {
+        Binding(
             get: { viewModel.toastMessage != nil },
             set: { _ in viewModel.toastMessage = nil }
-        )) {
-            Button("确定", role: .cancel) { viewModel.toastMessage = nil }
+        )
+    }
+
+    private func handleScenePhaseChange(_: ScenePhase, _ phase: ScenePhase) {
+        viewModel.setReadingAppActive(phase == .active)
+    }
+
+    private func handleCurrentSentenceIndexChange(_: Int?, _ newValue: Int?) {
+        viewModel.noteReadingInteraction()
+        if let newValue {
+            selectedSentenceIndex = newValue
+            pendingScrollSentenceIndex = newValue
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.92), value: isPanelVisible)
+    }
+
+    private func handleActiveSentenceChange(_: String, _: String) {
+        refreshInteractivePanel()
+    }
+
+    private func handleSpeechTranscriptChange(_: String, _ transcript: String) {
+        questionDraft = [questionBeforeSpeech, transcript]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func handleSpeechErrorChange(_: String?, _ message: String?) {
+        guard let message else { return }
+        viewModel.toastMessage = message
+        speechInput.clearError()
+    }
+
+    private func handleDisappear() {
+        isNavigatingBack = false
+        speechInput.cancelRecording()
+        viewModel.stopVoiceReading()
+        viewModel.stopReadingDurationTracking()
     }
 
     private var topBar: some View {
@@ -160,6 +213,11 @@ struct ArticleDetailView: View {
             GeometryReader { geometry in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
+                        if !viewModel.readingMetaText.isEmpty {
+                            Text(viewModel.readingMetaText)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                        }
                         if viewModel.sentences.isEmpty && !viewModel.isLoading {
                             Text("文章内容还没准备好")
                                 .font(.system(size: 24, weight: .bold))

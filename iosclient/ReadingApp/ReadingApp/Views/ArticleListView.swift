@@ -39,6 +39,7 @@ struct ArticleListView: View {
         .navigationBarBackButtonHidden(true)
         .task {
             await viewModel.loadArticles()
+            await reviewTasksViewModel.loadTasks()
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewTasksDidChange)) { _ in
             Task {
@@ -308,7 +309,12 @@ struct ArticleListView: View {
                 viewModel.switchTab("list")
             }
             Spacer()
-            tabItem(icon: "checklist", title: "任务", isActive: viewModel.currentTab == "tasks") {
+            tabItem(
+                icon: "checklist",
+                title: "任务",
+                isActive: viewModel.currentTab == "tasks",
+                showsBadge: reviewTasksViewModel.hasPendingTasks
+            ) {
                 viewModel.switchTab("tasks")
                 Task {
                     await reviewTasksViewModel.loadTasks()
@@ -340,11 +346,25 @@ struct ArticleListView: View {
         )
     }
 
-    private func tabItem(icon: String, title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func tabItem(
+        icon: String,
+        title: String,
+        isActive: Bool,
+        showsBadge: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 20, weight: .medium))
+                    .overlay(alignment: .topTrailing) {
+                        if showsBadge {
+                            Circle()
+                                .fill(Color(red: 1.0, green: 0.23, blue: 0.19))
+                                .frame(width: 8, height: 8)
+                                .offset(x: 5, y: -3)
+                        }
+                    }
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
             }
@@ -352,6 +372,7 @@ struct ArticleListView: View {
             .frame(width: 70)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(showsBadge ? "\(title)，有待完成任务" : title)
     }
 }
 
@@ -372,7 +393,7 @@ private struct ArticleLibraryRow: View {
                         .multilineTextAlignment(.leading)
                         .lineLimit(2)
 
-                    Text("\(article.addedDisplay)  •  \(article.wordCount) words")
+                    Text("\(article.addedDisplay)  •  \(article.readingMetaDisplay)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
                 }

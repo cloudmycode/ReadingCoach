@@ -33,7 +33,15 @@
               {{ item.title || "未命名文章" }}
             </RouterLink>
             <p class="article-card__meta">
-              {{ item.sentence_count }} 句 · 阅读 {{ item.read_count }} 次 ·
+              {{ item.sentence_count }} 句
+              <template v-if="item.word_count"> · {{ item.word_count }} 词</template>
+              <template v-if="item.read_seconds">
+                · {{ formatDurationMinutes(item.read_seconds) }}
+              </template>
+              <template v-if="item.reading_speed_wpm">
+                · {{ item.reading_speed_wpm }} 词/分
+              </template>
+              · 阅读 {{ item.read_count }} 次 ·
               创建于 {{ formatDateTime(item.created_at) }}
             </p>
           </div>
@@ -61,6 +69,7 @@ import { RouterLink } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import { deleteArticle, listArticles } from "../api/articles";
 import { ApiError, formatDateTime } from "../api/client";
+import { formatDurationMinutes } from "../api/stats";
 import type { ArticleListItem } from "../types/api";
 
 const items = ref<ArticleListItem[]>([]);

@@ -25,7 +25,10 @@ export interface ArticleListItem {
   article_id: number;
   title: string;
   sentence_count: number;
+  word_count?: number;
   read_count: number;
+  read_seconds?: number;
+  reading_speed_wpm?: number;
   created_at: string;
   last_read_at?: string;
 }
@@ -48,6 +51,9 @@ export interface ArticleDetail {
   article_id: number;
   title: string;
   sentence_count: number;
+  word_count?: number;
+  read_seconds?: number;
+  reading_speed_wpm?: number;
   sentences: ArticleSentence[];
 }
 
@@ -118,6 +124,8 @@ export interface DailyStudyStat {
   date: string;
   new_articles: number;
   review_count: number;
+  read_seconds: number;
+  review_seconds: number;
   active: boolean;
 }
 
@@ -125,8 +133,12 @@ export interface StudyStatsOverview {
   total_articles: number;
   today_new_articles: number;
   today_review_count: number;
+  today_read_seconds: number;
+  today_review_seconds: number;
   current_streak_days: number;
   total_read_count: number;
   total_sentence_count: number;
+  total_read_seconds: number;
+  average_reading_speed_wpm?: number;
   recent_days: DailyStudyStat[];
 }

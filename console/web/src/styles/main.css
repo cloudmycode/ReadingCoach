@@ -636,6 +636,10 @@ textarea {
   background: #a78bfa;
 }
 
+.bar-chart__bar--again {
+  background: #fb923c;
+}
+
 .bar-chart__label {
   font-size: 10px;
   color: #9ca3af;

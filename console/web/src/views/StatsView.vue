@@ -22,35 +22,38 @@
       <template v-else>
         <div class="stats-grid">
           <div class="stat-card">
-            <span class="stat-card__label">今日新读</span>
-            <strong>{{ stats.today_new_articles }}</strong>
+            <span class="stat-card__label">今日阅读</span>
+            <strong>{{ formatDurationMinutes(stats.today_read_seconds) }}</strong>
           </div>
           <div class="stat-card">
             <span class="stat-card__label">今日复习</span>
-            <strong>{{ stats.today_review_count }}</strong>
+            <strong>{{ formatDurationMinutes(stats.today_review_seconds) }}</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__label">阅读速度</span>
+            <strong>
+              {{ stats.average_reading_speed_wpm ? `${stats.average_reading_speed_wpm}` : "—" }}
+            </strong>
+            <span class="stat-card__label">词/分钟</span>
           </div>
           <div class="stat-card">
             <span class="stat-card__label">连续坚持</span>
             <strong>{{ stats.current_streak_days }} 天</strong>
           </div>
-          <div class="stat-card">
-            <span class="stat-card__label">累计文章</span>
-            <strong>{{ stats.total_articles }}</strong>
-          </div>
         </div>
 
         <div class="stats-summary">
           <div class="stats-summary__item">
-            <span class="muted">总阅读次数</span>
-            <strong>{{ stats.total_read_count }}</strong>
+            <span class="muted">累计阅读时长</span>
+            <strong>{{ formatDurationMinutes(stats.total_read_seconds) }}</strong>
           </div>
           <div class="stats-summary__item">
-            <span class="muted">总句子数</span>
-            <strong>{{ stats.total_sentence_count }}</strong>
+            <span class="muted">今日复习词数</span>
+            <strong>{{ stats.today_review_count }} 词</strong>
           </div>
           <div class="stats-summary__item">
-            <span class="muted">近 14 天复习</span>
-            <strong>{{ totalRecentReviews }} 词</strong>
+            <span class="muted">累计文章</span>
+            <strong>{{ stats.total_articles }} 篇</strong>
           </div>
         </div>
 
@@ -58,23 +61,50 @@
           <section class="chart-card">
             <div class="chart-card__header">
               <div>
-                <h3>文章趋势</h3>
-                <p class="muted">近 14 天每日新读篇数</p>
+                <h3>阅读时长</h3>
+                <p class="muted">近 14 天每日阅读分钟数</p>
               </div>
-              <span class="chart-card__total">合计 {{ totalRecentArticles }} 篇</span>
+              <span class="chart-card__total">合计 {{ totalRecentReadMinutes }} 分</span>
             </div>
-            <div v-if="articlePoints.length === 0" class="chart-card__empty">暂无数据</div>
-            <div v-else class="bar-chart" role="img" aria-label="文章趋势图">
+            <div v-if="readDurationPoints.length === 0" class="chart-card__empty">暂无数据</div>
+            <div v-else class="bar-chart" role="img" aria-label="阅读时长趋势图">
               <div
-                v-for="point in articlePoints"
-                :key="`article-${point.date}`"
+                v-for="point in readDurationPoints"
+                :key="`read-${point.date}`"
                 class="bar-chart__col"
               >
                 <span class="bar-chart__value">{{ point.count || "" }}</span>
                 <div class="bar-chart__track">
                   <div
                     class="bar-chart__bar bar-chart__bar--article"
-                    :style="{ height: `${barHeight(point.count, maxArticles)}%` }"
+                    :style="{ height: `${barHeight(point.count, maxReadMinutes)}%` }"
+                  />
+                </div>
+                <span class="bar-chart__label">{{ shortDate(point.date) }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="chart-card">
+            <div class="chart-card__header">
+              <div>
+                <h3>复习时长</h3>
+                <p class="muted">近 14 天每日复习分钟数</p>
+              </div>
+              <span class="chart-card__total">合计 {{ totalRecentReviewMinutes }} 分</span>
+            </div>
+            <div v-if="reviewDurationPoints.length === 0" class="chart-card__empty">暂无数据</div>
+            <div v-else class="bar-chart" role="img" aria-label="复习时长趋势图">
+              <div
+                v-for="point in reviewDurationPoints"
+                :key="`review-min-${point.date}`"
+                class="bar-chart__col"
+              >
+                <span class="bar-chart__value">{{ point.count || "" }}</span>
+                <div class="bar-chart__track">
+                  <div
+                    class="bar-chart__bar bar-chart__bar--review"
+                    :style="{ height: `${barHeight(point.count, maxReviewMinutes)}%` }"
                   />
                 </div>
                 <span class="bar-chart__label">{{ shortDate(point.date) }}</span>
@@ -103,7 +133,7 @@
                 <span class="bar-chart__value">{{ point.count || "" }}</span>
                 <div class="bar-chart__track">
                   <div
-                    class="bar-chart__bar bar-chart__bar--review"
+                    class="bar-chart__bar bar-chart__bar--again"
                     :style="{ height: `${barHeight(point.count, maxReviews)}%` }"
                   />
                 </div>
@@ -141,6 +171,9 @@
                   <strong>{{ group.title }}</strong>
                   <span class="muted">
                     {{ group.count }} 个单词
+                    <template v-if="dayDurationText(group.key)">
+                      · {{ dayDurationText(group.key) }}
+                    </template>
                     <template v-if="group.masteredCount || group.againCount">
                       · 认识了 {{ group.masteredCount }} · 还不熟 {{ group.againCount }}
                     </template>
@@ -206,7 +239,7 @@ import { RouterLink } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import { ApiError, formatDateTime } from "../api/client";
 import { listReviewTasks } from "../api/review";
-import { getStudyStatsOverview } from "../api/stats";
+import { formatDurationMinutes, getStudyStatsOverview } from "../api/stats";
 import type {
   DailyStudyStat,
   StudyStatsOverview,
@@ -234,17 +267,27 @@ const stats = ref<StudyStatsOverview>({
   total_articles: 0,
   today_new_articles: 0,
   today_review_count: 0,
+  today_read_seconds: 0,
+  today_review_seconds: 0,
   current_streak_days: 0,
   total_read_count: 0,
   total_sentence_count: 0,
+  total_read_seconds: 0,
   recent_days: [],
 });
 const completedItems = ref<WordReviewTaskItem[]>([]);
 
-const articlePoints = computed<ChartPoint[]>(() =>
+const readDurationPoints = computed<ChartPoint[]>(() =>
   (stats.value.recent_days || []).map((day) => ({
     date: day.date,
-    count: day.new_articles,
+    count: Math.ceil((day.read_seconds || 0) / 60),
+  })),
+);
+
+const reviewDurationPoints = computed<ChartPoint[]>(() =>
+  (stats.value.recent_days || []).map((day) => ({
+    date: day.date,
+    count: Math.ceil((day.review_seconds || 0) / 60),
   })),
 );
 
@@ -255,16 +298,24 @@ const reviewPoints = computed<ChartPoint[]>(() =>
   })),
 );
 
-const maxArticles = computed(() =>
-  Math.max(...articlePoints.value.map((item) => item.count), 1),
+const maxReadMinutes = computed(() =>
+  Math.max(...readDurationPoints.value.map((item) => item.count), 1),
+);
+
+const maxReviewMinutes = computed(() =>
+  Math.max(...reviewDurationPoints.value.map((item) => item.count), 1),
 );
 
 const maxReviews = computed(() =>
   Math.max(...reviewPoints.value.map((item) => item.count), 1),
 );
 
-const totalRecentArticles = computed(() =>
-  articlePoints.value.reduce((sum, item) => sum + item.count, 0),
+const totalRecentReadMinutes = computed(() =>
+  readDurationPoints.value.reduce((sum, item) => sum + item.count, 0),
+);
+
+const totalRecentReviewMinutes = computed(() =>
+  reviewDurationPoints.value.reduce((sum, item) => sum + item.count, 0),
 );
 
 const totalRecentReviews = computed(() =>
@@ -357,6 +408,19 @@ function dayTitle(key: string): string {
 function barHeight(count: number, max: number): number {
   if (count <= 0) return 0;
   return Math.max(8, Math.round((count / max) * 100));
+}
+
+function dayDurationText(dateKey: string): string {
+  const day = (stats.value.recent_days || []).find((item) => item.date === dateKey);
+  if (!day) return "";
+  const parts: string[] = [];
+  if (day.read_seconds > 0) {
+    parts.push(`阅读 ${formatDurationMinutes(day.read_seconds)}`);
+  }
+  if (day.review_seconds > 0) {
+    parts.push(`复习 ${formatDurationMinutes(day.review_seconds)}`);
+  }
+  return parts.join(" · ");
 }
 
 function selectDay(date: string) {
