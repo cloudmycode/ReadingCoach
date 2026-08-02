@@ -632,6 +632,10 @@ textarea {
   background: #3b82f6;
 }
 
+.bar-chart__bar--article-count {
+  background: #10b981;
+}
+
 .bar-chart__bar--review {
   background: #a78bfa;
 }

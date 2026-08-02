@@ -28,6 +28,8 @@ final class SpeechInputManager: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var isStarting = false
     @Published private(set) var errorMessage: String?
+    /// 识别正常结束后递增；取消录音不会触发。订阅方可用于自动发送。
+    @Published private(set) var autoSubmitTick = 0
 
     private let audioEngine = AVAudioEngine()
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
@@ -129,25 +131,32 @@ final class SpeechInputManager: ObservableObject {
         if let result {
             transcript = result.bestTranscription.formattedString
             if result.isFinal {
-                finishRecognition()
+                finishRecognition(autoSubmit: true)
                 return
             }
         }
 
         if error != nil {
-            if isRecording {
+            // 仍在录时出错：提示重试，不自动发送。
+            // 用户已点停止后收尾出错：用已有文稿自动发送。
+            let wasActivelyRecording = isRecording
+            if wasActivelyRecording {
                 errorMessage = "语音识别失败，请重试"
             }
-            finishRecognition()
+            finishRecognition(autoSubmit: !wasActivelyRecording)
         }
     }
 
-    private func finishRecognition() {
+    private func finishRecognition(autoSubmit: Bool) {
         stopAudioCapture()
         recognitionTask = nil
         recognitionRequest = nil
         isRecording = false
         cleanUpAudioSession()
+        let hasText = !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if autoSubmit, hasText {
+            autoSubmitTick += 1
+        }
     }
 
     private func stopAudioCapture() {

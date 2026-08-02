@@ -61,6 +61,33 @@
           <section class="chart-card">
             <div class="chart-card__header">
               <div>
+                <h3>文章趋势</h3>
+                <p class="muted">近 14 天每日新读篇数</p>
+              </div>
+              <span class="chart-card__total">合计 {{ totalRecentArticles }} 篇</span>
+            </div>
+            <div v-if="articlePoints.length === 0" class="chart-card__empty">暂无数据</div>
+            <div v-else class="bar-chart" role="img" aria-label="文章趋势图">
+              <div
+                v-for="point in articlePoints"
+                :key="`article-${point.date}`"
+                class="bar-chart__col"
+              >
+                <span class="bar-chart__value">{{ point.count || "" }}</span>
+                <div class="bar-chart__track">
+                  <div
+                    class="bar-chart__bar bar-chart__bar--article-count"
+                    :style="{ height: `${barHeight(point.count, maxArticles)}%` }"
+                  />
+                </div>
+                <span class="bar-chart__label">{{ shortDate(point.date) }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="chart-card">
+            <div class="chart-card__header">
+              <div>
                 <h3>阅读时长</h3>
                 <p class="muted">近 14 天每日阅读分钟数</p>
               </div>
@@ -277,6 +304,13 @@ const stats = ref<StudyStatsOverview>({
 });
 const completedItems = ref<WordReviewTaskItem[]>([]);
 
+const articlePoints = computed<ChartPoint[]>(() =>
+  (stats.value.recent_days || []).map((day) => ({
+    date: day.date,
+    count: day.new_articles,
+  })),
+);
+
 const readDurationPoints = computed<ChartPoint[]>(() =>
   (stats.value.recent_days || []).map((day) => ({
     date: day.date,
@@ -298,6 +332,10 @@ const reviewPoints = computed<ChartPoint[]>(() =>
   })),
 );
 
+const maxArticles = computed(() =>
+  Math.max(...articlePoints.value.map((item) => item.count), 1),
+);
+
 const maxReadMinutes = computed(() =>
   Math.max(...readDurationPoints.value.map((item) => item.count), 1),
 );
@@ -308,6 +346,10 @@ const maxReviewMinutes = computed(() =>
 
 const maxReviews = computed(() =>
   Math.max(...reviewPoints.value.map((item) => item.count), 1),
+);
+
+const totalRecentArticles = computed(() =>
+  articlePoints.value.reduce((sum, item) => sum + item.count, 0),
 );
 
 const totalRecentReadMinutes = computed(() =>

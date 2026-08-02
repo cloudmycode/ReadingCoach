@@ -30,6 +30,16 @@ struct StatsView: View {
                     topBar
                     overviewCards
                     StatsTrendChartCard(
+                        title: "文章趋势",
+                        subtitle: "近 14 天每日新读篇数",
+                        unit: "篇",
+                        accent: Color(red: 0.04, green: 0.65, blue: 0.35),
+                        values: viewModel.stats.recentDays.map {
+                            StatsTrendPoint(date: $0.date, count: $0.newArticles)
+                        },
+                        isLoading: viewModel.isLoading
+                    )
+                    StatsTrendChartCard(
                         title: "阅读时长",
                         subtitle: "近 14 天每日阅读分钟数",
                         unit: "分",

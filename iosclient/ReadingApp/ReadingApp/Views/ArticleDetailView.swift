@@ -80,6 +80,7 @@ struct ArticleDetailView: View {
             .onChange(of: activeSentenceID, handleActiveSentenceChange)
             .onChange(of: speechInput.transcript, handleSpeechTranscriptChange)
             .onChange(of: speechInput.errorMessage, handleSpeechErrorChange)
+            .onChange(of: speechInput.autoSubmitTick, handleSpeechAutoSubmit)
     }
 
     private var readingLifecycleAttached: some View {
@@ -135,6 +136,17 @@ struct ArticleDetailView: View {
         guard let message else { return }
         viewModel.toastMessage = message
         speechInput.clearError()
+    }
+
+    private func handleSpeechAutoSubmit(_: Int, _: Int) {
+        guard !isSubmittingQuestion else { return }
+        questionDraft = [questionBeforeSpeech, speechInput.transcript]
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        questionBeforeSpeech = ""
+        let question = questionDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        Task { await submitQuestion() }
     }
 
     private func handleDisappear() {
@@ -693,7 +705,7 @@ struct ArticleDetailView: View {
             }
             .buttonStyle(.plain)
             .disabled(isSubmittingQuestion || speechInput.isStarting)
-            .accessibilityLabel(speechInput.isRecording ? "停止语音输入" : "开始语音输入")
+            .accessibilityLabel(speechInput.isRecording ? "停止并发送" : "开始语音输入")
         }
     }
 
