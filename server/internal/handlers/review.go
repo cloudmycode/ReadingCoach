@@ -156,6 +156,12 @@ func wordReviewTaskPayload(task services.WordReviewTask) gin.H {
 		"review_step":          task.ReviewStep,
 		"mastery_status":       task.MasteryStatus,
 	}
+	if task.LogID > 0 {
+		item["log_id"] = task.LogID
+	}
+	if task.Result != "" {
+		item["result"] = task.Result
+	}
 	if task.NextReviewAt != nil {
 		item["next_review_at"] = task.NextReviewAt.Format("2006-01-02")
 	}

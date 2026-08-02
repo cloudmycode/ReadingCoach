@@ -33,6 +33,26 @@ final class ReviewTasksViewModel: ObservableObject {
         return "\(current) / \(sessionQueue.count)"
     }
 
+    /// 是否有待完成的复习任务（用于底部 Tab 红点）。
+    var hasPendingTasks: Bool {
+        !pendingTasks.isEmpty
+    }
+
+    /// 已完成任务按本地日历日分组（新→旧）。
+    var completedTaskGroups: [CompletedWordReviewDayGroup] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: completedTasks) { task -> Date in
+            let date = task.reviewedDate ?? .distantPast
+            return calendar.startOfDay(for: date)
+        }
+        return grouped.keys.sorted(by: >).map { day in
+            let tasks = (grouped[day] ?? []).sorted {
+                ($0.reviewedDate ?? .distantPast) > ($1.reviewedDate ?? .distantPast)
+            }
+            return CompletedWordReviewDayGroup(day: day, tasks: tasks)
+        }
+    }
+
     func loadTasks() async {
         if isLoading { return }
         isLoading = true
@@ -125,5 +145,30 @@ final class ReviewTasksViewModel: ObservableObject {
         }
         sessionIndex = next
         isRevealed = false
+    }
+}
+
+struct CompletedWordReviewDayGroup: Identifiable, Hashable {
+    let day: Date
+    let tasks: [WordReviewTaskItem]
+
+    var id: Date { day }
+
+    var title: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(day) {
+            return "今天"
+        }
+        if calendar.isDateInYesterday(day) {
+            return "昨天"
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
+        return formatter.string(from: day)
+    }
+
+    var subtitle: String {
+        "\(tasks.count) 个单词"
     }
 }

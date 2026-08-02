@@ -67,6 +67,7 @@ export interface WordReviewSummary {
 }
 
 export interface WordReviewTaskItem {
+  log_id?: number;
   entry_id: number;
   word: string;
   normalized_word: string;
@@ -82,6 +83,8 @@ export interface WordReviewTaskItem {
   mastery_status: string;
   next_review_at?: string;
   last_reviewed_at?: string;
+  /** mastered = 熟练，again = 不熟悉 */
+  result?: "mastered" | "again" | string;
 }
 
 export interface WordReviewTasksData {

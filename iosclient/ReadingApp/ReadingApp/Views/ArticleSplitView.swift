@@ -147,7 +147,11 @@ struct ArticleSplitView: View {
                 sidebarTabButton(title: "列表", isActive: selectedSidebarTab == .list) {
                     selectedSidebarTab = .list
                 }
-                sidebarTabButton(title: "任务", isActive: selectedSidebarTab == .tasks) {
+                sidebarTabButton(
+                    title: "任务",
+                    isActive: selectedSidebarTab == .tasks,
+                    showsBadge: reviewTasksViewModel.hasPendingTasks
+                ) {
                     selectedSidebarTab = .tasks
                     Task {
                         await reviewTasksViewModel.loadTasks()
@@ -422,7 +426,12 @@ struct ArticleSplitView: View {
         return colors[index % colors.count]
     }
 
-    private func sidebarTabButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func sidebarTabButton(
+        title: String,
+        isActive: Bool,
+        showsBadge: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
@@ -433,8 +442,17 @@ struct ArticleSplitView: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(isActive ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.95, green: 0.97, blue: 1.0))
                 )
+                .overlay(alignment: .topTrailing) {
+                    if showsBadge {
+                        Circle()
+                            .fill(Color(red: 1.0, green: 0.23, blue: 0.19))
+                            .frame(width: 8, height: 8)
+                            .offset(x: -6, y: 6)
+                    }
+                }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(showsBadge ? "\(title)，有待完成任务" : title)
     }
 }
 

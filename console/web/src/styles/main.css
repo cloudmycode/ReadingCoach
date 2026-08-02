@@ -378,6 +378,57 @@ textarea {
   font-size: 12px;
 }
 
+.record-badge--mastered {
+  background: #e8faf2;
+  color: #059669;
+}
+
+.record-badge--again {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.day-group-list {
+  display: grid;
+  gap: 12px;
+}
+
+.day-group__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e5eaf2;
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.day-group__header strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 16px;
+  color: #111827;
+}
+
+.day-group__chevron {
+  color: #9ca3af;
+  font-size: 22px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.day-group__chevron--open {
+  transform: rotate(90deg);
+}
+
+.day-group__items {
+  margin-top: 10px;
+}
+
 .record-card__meta,
 .record-card__submeta {
   margin: 0;

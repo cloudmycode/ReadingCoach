@@ -525,6 +525,13 @@ func (s *ArticleService) EnsureUserWordBookTable(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `DROP TABLE IF EXISTS article_review_tasks`); err != nil {
 		return fmt.Errorf("drop legacy article review tasks: %w", err)
 	}
+
+	if err := s.ensureWordReviewLogTable(ctx); err != nil {
+		return err
+	}
+	if err := s.backfillWordReviewLogs(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
