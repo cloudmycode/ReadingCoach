@@ -6,6 +6,7 @@ import ArticleListView from "../views/ArticleListView.vue";
 import ArticleDetailView from "../views/ArticleDetailView.vue";
 import ReviewTasksView from "../views/ReviewTasksView.vue";
 import WordBookView from "../views/WordBookView.vue";
+import StatsView from "../views/StatsView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -48,6 +49,12 @@ const router = createRouter({
       path: "/word-book",
       name: "word-book",
       component: WordBookView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/stats",
+      name: "stats",
+      component: StatsView,
       meta: { requiresAuth: true },
     },
   ],

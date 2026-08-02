@@ -10,6 +10,7 @@
         <RouterLink to="/articles" class="nav-link">文章列表</RouterLink>
         <RouterLink to="/review-tasks" class="nav-link">复习任务</RouterLink>
         <RouterLink to="/word-book" class="nav-link">生词本</RouterLink>
+        <RouterLink to="/stats" class="nav-link">学习统计</RouterLink>
       </nav>
 
       <div class="layout__user">

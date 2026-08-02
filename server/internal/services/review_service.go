@@ -10,8 +10,12 @@ import (
 
 const DailyWordReviewLimit = 20
 
-// WordReviewTask 生词复习任务（一条生词本条目）。
+// completedWordReviewHistoryDays 已完成任务回溯天数。
+const completedWordReviewHistoryDays = 90
+
+// WordReviewTask 生词复习任务（一条生词本条目或一条复习日志）。
 type WordReviewTask struct {
+	LogID               int64
 	EntryID             int64
 	Word                string
 	NormalizedWord      string
@@ -27,6 +31,7 @@ type WordReviewTask struct {
 	NextReviewAt        *time.Time
 	MasteryStatus       string
 	LastReviewedAt      *time.Time
+	Result              string // mastered | again；历史回填可能为空
 }
 
 // WordReviewTodaySummary 今日复习概览。
@@ -120,63 +125,45 @@ func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, st
 	if err := s.EnsureUserWordBookTable(ctx); err != nil {
 		return nil, err
 	}
-
-	var query string
-	switch status {
-	case "completed":
-		query = `
-			SELECT
-				w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
-				w.sentence_original, w.sentence_translation, w.article_id,
-				COALESCE(a.title, ''), w.sentence_id, w.review_step, w.next_review_at,
-				w.mastery_status, w.last_reviewed_at
-			FROM user_word_book w
-			LEFT JOIN articles a ON a.article_id = w.article_id
-			WHERE w.user_id = ?
-			  AND w.last_reviewed_at IS NOT NULL
-			  AND DATE(w.last_reviewed_at) = CURDATE()
-			ORDER BY w.last_reviewed_at DESC, w.entry_id DESC
-		`
-	default:
-		query = `
-			SELECT
-				w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
-				w.sentence_original, w.sentence_translation, w.article_id,
-				COALESCE(a.title, ''), w.sentence_id, w.review_step, w.next_review_at,
-				w.mastery_status, w.last_reviewed_at
-			FROM user_word_book w
-			LEFT JOIN articles a ON a.article_id = w.article_id
-			WHERE w.user_id = ?
-			  AND w.mastery_status = 'learning'
-			  AND w.next_review_at IS NOT NULL
-			  AND w.next_review_at <= CURDATE()
-			  AND (w.last_reviewed_at IS NULL OR DATE(w.last_reviewed_at) < CURDATE())
-			ORDER BY w.next_review_at ASC, w.entry_id ASC
-			LIMIT ?
-		`
+	if err := s.ensureWordReviewLogTable(ctx); err != nil {
+		return nil, err
 	}
 
-	var rows *sql.Rows
-	var err error
-	if status == "pending" {
-		var completedToday int
-		if err := s.db.QueryRowContext(ctx, `
-			SELECT COUNT(*)
-			FROM user_word_book
-			WHERE user_id = ?
-			  AND last_reviewed_at IS NOT NULL
-			  AND DATE(last_reviewed_at) = CURDATE()
-		`, userID).Scan(&completedToday); err != nil {
-			return nil, fmt.Errorf("count completed word reviews for limit: %w", err)
-		}
-		limit := DailyWordReviewLimit - completedToday
-		if limit <= 0 {
-			return []WordReviewTask{}, nil
-		}
-		rows, err = s.db.QueryContext(ctx, query, userID, limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx, query, userID)
+	if status == "completed" {
+		return s.listCompletedWordReviewTasks(ctx, userID)
 	}
+
+	var completedToday int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM user_word_book
+		WHERE user_id = ?
+		  AND last_reviewed_at IS NOT NULL
+		  AND DATE(last_reviewed_at) = CURDATE()
+	`, userID).Scan(&completedToday); err != nil {
+		return nil, fmt.Errorf("count completed word reviews for limit: %w", err)
+	}
+	limit := DailyWordReviewLimit - completedToday
+	if limit <= 0 {
+		return []WordReviewTask{}, nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			0, w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
+			w.sentence_original, w.sentence_translation, w.article_id,
+			COALESCE(a.title, ''), w.sentence_id, w.review_step, w.next_review_at,
+			w.mastery_status, w.last_reviewed_at, ''
+		FROM user_word_book w
+		LEFT JOIN articles a ON a.article_id = w.article_id
+		WHERE w.user_id = ?
+		  AND w.mastery_status = 'learning'
+		  AND w.next_review_at IS NOT NULL
+		  AND w.next_review_at <= CURDATE()
+		  AND (w.last_reviewed_at IS NULL OR DATE(w.last_reviewed_at) < CURDATE())
+		ORDER BY w.next_review_at ASC, w.entry_id ASC
+		LIMIT ?
+	`, userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query word review tasks: %w", err)
 	}
@@ -196,6 +183,39 @@ func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, st
 	return tasks, nil
 }
 
+func (s *ArticleService) listCompletedWordReviewTasks(ctx context.Context, userID int) ([]WordReviewTask, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			l.log_id, w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
+			w.sentence_original, w.sentence_translation, w.article_id,
+			COALESCE(a.title, ''), w.sentence_id, w.review_step, w.next_review_at,
+			w.mastery_status, l.reviewed_at, l.result
+		FROM user_word_review_logs l
+		INNER JOIN user_word_book w ON w.entry_id = l.entry_id AND w.user_id = l.user_id
+		LEFT JOIN articles a ON a.article_id = w.article_id
+		WHERE l.user_id = ?
+		  AND l.reviewed_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+		ORDER BY l.reviewed_at DESC, l.log_id DESC
+	`, userID, completedWordReviewHistoryDays)
+	if err != nil {
+		return nil, fmt.Errorf("query completed word review logs: %w", err)
+	}
+	defer rows.Close()
+
+	tasks := make([]WordReviewTask, 0)
+	for rows.Next() {
+		task, scanErr := scanWordReviewTask(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate completed word review logs: %w", err)
+	}
+	return tasks, nil
+}
+
 func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int, entryID int64, result string) (*WordReviewResult, error) {
 	if err := s.validateService(); err != nil {
 		return nil, err
@@ -208,6 +228,9 @@ func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int,
 		return nil, fmt.Errorf("invalid review result")
 	}
 	if err := s.EnsureUserWordBookTable(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.ensureWordReviewLogTable(ctx); err != nil {
 		return nil, err
 	}
 
@@ -288,6 +311,14 @@ func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int,
 		return nil, err
 	}
 
+	if _, execErr = tx.ExecContext(ctx, `
+		INSERT INTO user_word_review_logs (user_id, entry_id, result, reviewed_at)
+		VALUES (?, ?, ?, ?)
+	`, userID, entryID, result, now); execErr != nil {
+		err = fmt.Errorf("insert word review log: %w", execErr)
+		return nil, err
+	}
+
 	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit word review result: %w", err)
 	}
@@ -324,11 +355,54 @@ func dateOnly(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
+func (s *ArticleService) ensureWordReviewLogTable(ctx context.Context) error {
+	if err := s.validateService(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS user_word_review_logs (
+			log_id BIGINT NOT NULL AUTO_INCREMENT,
+			user_id INT NOT NULL,
+			entry_id BIGINT NOT NULL,
+			result VARCHAR(16) NOT NULL,
+			reviewed_at DATETIME NOT NULL,
+			PRIMARY KEY (log_id),
+			KEY idx_user_reviewed_at (user_id, reviewed_at),
+			KEY idx_user_entry_reviewed (user_id, entry_id, reviewed_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+	`)
+	if err != nil {
+		return fmt.Errorf("ensure user word review logs table: %w", err)
+	}
+	return nil
+}
+
+func (s *ArticleService) backfillWordReviewLogs(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO user_word_review_logs (user_id, entry_id, result, reviewed_at)
+		SELECT w.user_id, w.entry_id, '', w.last_reviewed_at
+		FROM user_word_book w
+		WHERE w.last_reviewed_at IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM user_word_review_logs l
+			WHERE l.user_id = w.user_id
+			  AND l.entry_id = w.entry_id
+			  AND l.reviewed_at = w.last_reviewed_at
+		  )
+	`); err != nil {
+		return fmt.Errorf("backfill word review logs: %w", err)
+	}
+	return nil
+}
+
 func scanWordReviewTask(rows *sql.Rows) (WordReviewTask, error) {
 	var task WordReviewTask
 	var nextReview sql.NullTime
 	var lastReviewed sql.NullTime
+	var result sql.NullString
 	if err := rows.Scan(
+		&task.LogID,
 		&task.EntryID,
 		&task.Word,
 		&task.NormalizedWord,
@@ -344,6 +418,7 @@ func scanWordReviewTask(rows *sql.Rows) (WordReviewTask, error) {
 		&nextReview,
 		&task.MasteryStatus,
 		&lastReviewed,
+		&result,
 	); err != nil {
 		return WordReviewTask{}, fmt.Errorf("scan word review task: %w", err)
 	}
@@ -354,6 +429,9 @@ func scanWordReviewTask(rows *sql.Rows) (WordReviewTask, error) {
 	if lastReviewed.Valid {
 		t := lastReviewed.Time
 		task.LastReviewedAt = &t
+	}
+	if result.Valid {
+		task.Result = result.String
 	}
 	return task, nil
 }

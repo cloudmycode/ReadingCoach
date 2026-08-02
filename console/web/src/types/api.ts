@@ -67,6 +67,7 @@ export interface WordReviewSummary {
 }
 
 export interface WordReviewTaskItem {
+  log_id?: number;
   entry_id: number;
   word: string;
   normalized_word: string;
@@ -82,6 +83,8 @@ export interface WordReviewTaskItem {
   mastery_status: string;
   next_review_at?: string;
   last_reviewed_at?: string;
+  /** mastered = 认识了，again = 还不熟 */
+  result?: "mastered" | "again" | string;
 }
 
 export interface WordReviewTasksData {
@@ -109,4 +112,21 @@ export interface WordBookItem {
 
 export interface WordBookListData {
   items: WordBookItem[];
+}
+
+export interface DailyStudyStat {
+  date: string;
+  new_articles: number;
+  review_count: number;
+  active: boolean;
+}
+
+export interface StudyStatsOverview {
+  total_articles: number;
+  today_new_articles: number;
+  today_review_count: number;
+  current_streak_days: number;
+  total_read_count: number;
+  total_sentence_count: number;
+  recent_days: DailyStudyStat[];
 }

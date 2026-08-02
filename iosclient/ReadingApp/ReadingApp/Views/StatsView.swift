@@ -40,8 +40,8 @@ struct StatsView: View {
                         isLoading: viewModel.isLoading
                     )
                     StatsTrendChartCard(
-                        title: "单词趋势",
-                        subtitle: "近 14 天每日复习词数",
+                        title: "单词复习",
+                        subtitle: "近 14 天每日复习单词数量",
                         unit: "词",
                         accent: Color(red: 0.64, green: 0.42, blue: 0.90),
                         values: viewModel.stats.recentDays.map {

@@ -282,6 +282,7 @@ struct WordReviewResultResponse: Codable {
 }
 
 struct WordReviewTaskItem: Identifiable, Codable, Hashable {
+    let logId: Int64?
     let entryId: Int64
     let word: String
     let normalizedWord: String
@@ -297,8 +298,11 @@ struct WordReviewTaskItem: Identifiable, Codable, Hashable {
     let masteryStatus: String
     let nextReviewAt: String?
     let lastReviewedAt: String?
+    /// mastered = 认识了，again = 还不熟；历史回填可能为空
+    let result: String?
 
     enum CodingKeys: String, CodingKey {
+        case logId = "log_id"
         case entryId = "entry_id"
         case word
         case normalizedWord = "normalized_word"
@@ -314,7 +318,41 @@ struct WordReviewTaskItem: Identifiable, Codable, Hashable {
         case masteryStatus = "mastery_status"
         case nextReviewAt = "next_review_at"
         case lastReviewedAt = "last_reviewed_at"
+        case result
     }
 
-    var id: String { "\(entryId)" }
+    var id: String {
+        if let logId, logId > 0 {
+            return "log-\(logId)"
+        }
+        return "entry-\(entryId)"
+    }
+
+    /// 与词卡按钮文案一致：认识了 / 还不熟
+    var resultLabel: String? {
+        switch result?.lowercased() {
+        case "mastered":
+            return "认识了"
+        case "again":
+            return "还不熟"
+        default:
+            return nil
+        }
+    }
+
+    var isRecognized: Bool {
+        result?.lowercased() == "mastered"
+    }
+
+    var reviewedDate: Date? {
+        guard let lastReviewedAt, !lastReviewedAt.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = withFraction.date(from: lastReviewedAt) {
+            return date
+        }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: lastReviewedAt)
+    }
 }

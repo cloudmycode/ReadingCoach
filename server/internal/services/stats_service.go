@@ -95,6 +95,9 @@ func (s *ArticleService) GetUserStudyStats(ctx context.Context, userID int, days
 	if err := s.ensureStudyLogTable(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.ensureWordReviewLogTable(ctx); err != nil {
+		return nil, err
+	}
 
 	stats := &StudyStats{
 		RecentDays: make([]DailyStudyStats, 0, days),
@@ -113,26 +116,29 @@ func (s *ArticleService) GetUserStudyStats(ctx context.Context, userID int, days
 	}
 
 	todayRow := s.db.QueryRowContext(ctx, `
-		SELECT
-			COALESCE(new_article_count, 0),
-			COALESCE(review_article_count, 0)
+		SELECT COALESCE(new_article_count, 0)
 		FROM user_study_logs
 		WHERE user_id = ? AND study_date = CURDATE()
 	`, userID)
-	switch err := todayRow.Scan(&stats.TodayNewArticles, &stats.TodayReviewCount); err {
+	switch err := todayRow.Scan(&stats.TodayNewArticles); err {
 	case nil:
 	case sql.ErrNoRows:
 		stats.TodayNewArticles = 0
-		stats.TodayReviewCount = 0
 	default:
 		return nil, fmt.Errorf("query today study stats: %w", err)
 	}
 
+	// 每日复习词数以复习日志为准（每次词卡提交计 1）。
+	wordReviewCounts, err := s.dailyWordReviewCounts(ctx, userID, days)
+	if err != nil {
+		return nil, err
+	}
+	stats.TodayReviewCount = wordReviewCounts[time.Now().Format("2006-01-02")]
+
 	recentRows, err := s.db.QueryContext(ctx, `
 		SELECT
 			study_date,
-			new_article_count,
-			review_article_count
+			new_article_count
 		FROM user_study_logs
 		WHERE user_id = ?
 		  AND study_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
@@ -147,10 +153,11 @@ func (s *ArticleService) GetUserStudyStats(ctx context.Context, userID int, days
 	for recentRows.Next() {
 		var studyDate time.Time
 		var item DailyStudyStats
-		if err := recentRows.Scan(&studyDate, &item.NewArticles, &item.ReviewCount); err != nil {
+		if err := recentRows.Scan(&studyDate, &item.NewArticles); err != nil {
 			return nil, fmt.Errorf("scan recent study log: %w", err)
 		}
 		item.Date = studyDate.Format("2006-01-02")
+		item.ReviewCount = wordReviewCounts[item.Date]
 		item.Active = item.NewArticles > 0 || item.ReviewCount > 0
 		recentMap[item.Date] = item
 	}
@@ -161,15 +168,18 @@ func (s *ArticleService) GetUserStudyStats(ctx context.Context, userID int, days
 	today := time.Now()
 	for offset := days - 1; offset >= 0; offset-- {
 		date := today.AddDate(0, 0, -offset).Format("2006-01-02")
+		reviewCount := wordReviewCounts[date]
 		if item, ok := recentMap[date]; ok {
+			item.ReviewCount = reviewCount
+			item.Active = item.NewArticles > 0 || reviewCount > 0
 			stats.RecentDays = append(stats.RecentDays, item)
 			continue
 		}
 		stats.RecentDays = append(stats.RecentDays, DailyStudyStats{
 			Date:        date,
 			NewArticles: 0,
-			ReviewCount: 0,
-			Active:      false,
+			ReviewCount: reviewCount,
+			Active:      reviewCount > 0,
 		})
 	}
 
@@ -206,4 +216,32 @@ func (s *ArticleService) GetUserStudyStats(ctx context.Context, userID int, days
 	}
 
 	return stats, nil
+}
+
+func (s *ArticleService) dailyWordReviewCounts(ctx context.Context, userID int, days int) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DATE(reviewed_at) AS review_date, COUNT(*) AS review_count
+		FROM user_word_review_logs
+		WHERE user_id = ?
+		  AND reviewed_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+		GROUP BY DATE(reviewed_at)
+	`, userID, days-1)
+	if err != nil {
+		return nil, fmt.Errorf("query daily word review counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int, days)
+	for rows.Next() {
+		var reviewDate time.Time
+		var count int
+		if err := rows.Scan(&reviewDate, &count); err != nil {
+			return nil, fmt.Errorf("scan daily word review count: %w", err)
+		}
+		counts[reviewDate.Format("2006-01-02")] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily word review counts: %w", err)
+	}
+	return counts, nil
 }

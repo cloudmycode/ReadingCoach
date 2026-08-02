@@ -22,6 +22,7 @@ struct ReviewTasksView: View {
     let onAddArticle: () -> Void
 
     @State private var selectedTab: ReviewTaskTab = .current
+    @State private var expandedCompletedDays: Set<Date> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,11 +42,16 @@ struct ReviewTasksView: View {
         }
         .task {
             await viewModel.loadTasks()
+            expandTodayCompletedGroupIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .reviewTasksDidChange)) { _ in
             Task {
                 await viewModel.loadTasks()
+                expandTodayCompletedGroupIfNeeded()
             }
+        }
+        .onChange(of: viewModel.completedTasks) { _, _ in
+            expandTodayCompletedGroupIfNeeded()
         }
         .fullScreenCover(isPresented: $viewModel.isSessionPresented) {
             WordReviewSessionView(
@@ -158,23 +164,34 @@ struct ReviewTasksView: View {
         if viewModel.completedTasks.isEmpty && !viewModel.isLoading {
             ReviewTaskEmptyState(
                 title: "还没有完成的任务",
-                message: "完成词卡复习后，这里会记录你今天复习过的生词。",
+                message: "完成词卡复习后，这里会按日期记录你复习过的生词。",
                 buttonTitle: "查看当前任务",
                 action: {
                     selectedTab = .current
                 }
             )
         } else {
-            ForEach(viewModel.completedTasks) { task in
-                WordReviewCompletedCard(
-                    word: task.word,
-                    meaning: task.meaning,
-                    articleTitle: task.articleTitle,
-                    onOpenArticle: {
-                        onOpenArticle(task.articleId, task.articleTitle)
-                    }
+            ForEach(viewModel.completedTaskGroups) { group in
+                CompletedWordReviewDaySection(
+                    group: group,
+                    isExpanded: expandedCompletedDays.contains(group.day),
+                    onToggle: {
+                        if expandedCompletedDays.contains(group.day) {
+                            expandedCompletedDays.remove(group.day)
+                        } else {
+                            expandedCompletedDays.insert(group.day)
+                        }
+                    },
+                    onOpenArticle: onOpenArticle
                 )
             }
+        }
+    }
+
+    private func expandTodayCompletedGroupIfNeeded() {
+        let today = Calendar.current.startOfDay(for: Date())
+        if viewModel.completedTaskGroups.contains(where: { $0.day == today }) {
+            expandedCompletedDays.insert(today)
         }
     }
 }
@@ -210,18 +227,89 @@ private struct WordReviewPreviewCard: View {
     }
 }
 
+private struct CompletedWordReviewDaySection: View {
+    let group: CompletedWordReviewDayGroup
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onOpenArticle: (String, String) -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Button(action: onToggle) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.title)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
+                        Text(group.subtitle)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(16)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(group.tasks) { task in
+                    WordReviewCompletedCard(
+                        word: task.word,
+                        meaning: task.meaning,
+                        articleTitle: task.articleTitle,
+                        resultLabel: task.resultLabel,
+                        isRecognized: task.isRecognized,
+                        onOpenArticle: {
+                            onOpenArticle(task.articleId, task.articleTitle)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
 private struct WordReviewCompletedCard: View {
     let word: String
     let meaning: String
     let articleTitle: String
+    let resultLabel: String?
+    let isRecognized: Bool
     let onOpenArticle: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(word)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44))
+                if let resultLabel {
+                    Text(resultLabel)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(
+                            isRecognized
+                            ? Color(red: 0.02, green: 0.7, blue: 0.44)
+                            : Color(red: 0.86, green: 0.35, blue: 0.28)
+                        )
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            isRecognized
+                            ? Color(red: 0.9, green: 0.98, blue: 0.94)
+                            : Color(red: 1.0, green: 0.94, blue: 0.93)
+                        )
+                        .clipShape(Capsule())
+                }
                 Spacer()
                 Button("打开原文", action: onOpenArticle)
                     .font(.system(size: 12, weight: .semibold))

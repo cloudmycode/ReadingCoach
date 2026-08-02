@@ -227,10 +227,23 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_limit` / `streak_days` |
-| GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 今日已复习词列表 |
+| GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 已复习历史（近 90 天，含 `result` / `log_id`） |
 | POST | `/api/review/tasks/:entry_id/result` | 提交结果：`{"result":"mastered"\|"again"}` |
 
+`completed` 来自 `user_word_review_logs`：每次提交写入一条日志（`mastered`=认识了，`again`=还不熟）。学习统计的每日复习词数按该日志按日计数。
+
 查词写入生词本时，新词默认 `next_review_at = 明天`。旧文章复习表 `article_review_tasks` 已废弃删除。
+
+---
+
+## 4.6 学习统计
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/stats/overview?days=14` | 学习概览与近 N 天每日数据（默认 7，最大 30） |
+
+返回字段包括：`today_new_articles`、`today_review_count`（当日复习单词数）、`current_streak_days`、`total_articles`、`total_read_count`、`total_sentence_count`，以及 `recent_days[]`（`date` / `new_articles` / `review_count` / `active`）。  
+`review_count` 按 `user_word_review_logs` 按日计数。Web / iOS「每日复习详情」可再结合 `/api/review/tasks?status=completed` 展示当天单词与 `result`。
 
 ---
 
