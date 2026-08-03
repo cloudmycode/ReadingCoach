@@ -23,6 +23,7 @@ struct ReviewTasksView: View {
 
     @State private var selectedTab: ReviewTaskTab = .current
     @State private var expandedCompletedDays: Set<Date> = []
+    @State private var selectedCompletedTaskId: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -175,11 +176,17 @@ struct ReviewTasksView: View {
                 CompletedWordReviewDaySection(
                     group: group,
                     isExpanded: expandedCompletedDays.contains(group.day),
+                    selectedTaskId: selectedCompletedTaskId,
                     onToggle: {
                         if expandedCompletedDays.contains(group.day) {
                             expandedCompletedDays.remove(group.day)
                         } else {
                             expandedCompletedDays.insert(group.day)
+                        }
+                    },
+                    onSelectTask: { taskId in
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedCompletedTaskId = taskId
                         }
                     },
                     onOpenArticle: onOpenArticle
@@ -230,7 +237,9 @@ private struct WordReviewPreviewCard: View {
 private struct CompletedWordReviewDaySection: View {
     let group: CompletedWordReviewDayGroup
     let isExpanded: Bool
+    let selectedTaskId: String?
     let onToggle: () -> Void
+    let onSelectTask: (String) -> Void
     let onOpenArticle: (String, String) -> Void
 
     var body: some View {
@@ -269,6 +278,18 @@ private struct CompletedWordReviewDaySection: View {
                         articleTitle: task.articleTitle,
                         resultLabel: task.resultLabel,
                         isRecognized: task.isRecognized,
+                        isSelected: selectedTaskId == task.id,
+                        onPlayWord: {
+                            onSelectTask(task.id)
+                            Task {
+                                try? await ArticleAudioManager.shared.speak(
+                                    sentenceId: nil,
+                                    text: task.word,
+                                    type: .original,
+                                    style: .focusedSentence
+                                )
+                            }
+                        },
                         onOpenArticle: {
                             onOpenArticle(task.articleId, task.articleTitle)
                         }
@@ -285,6 +306,8 @@ private struct WordReviewCompletedCard: View {
     let articleTitle: String
     let resultLabel: String?
     let isRecognized: Bool
+    let isSelected: Bool
+    let onPlayWord: () -> Void
     let onOpenArticle: () -> Void
 
     var body: some View {
@@ -293,6 +316,9 @@ private struct WordReviewCompletedCard: View {
                 Text(word)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44))
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44).opacity(0.7))
                 if let resultLabel {
                     Text(resultLabel)
                         .font(.system(size: 11, weight: .bold))
@@ -325,12 +351,27 @@ private struct WordReviewCompletedCard: View {
                 .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
         }
         .padding(16)
-        .background(Color.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected
+            ? Color(red: 0.9, green: 0.98, blue: 0.94)
+            : Color.white
+        )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
+                .stroke(
+                    isSelected
+                    ? Color(red: 0.02, green: 0.7, blue: 0.44).opacity(0.5)
+                    : Color(red: 0.92, green: 0.95, blue: 0.98),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
         )
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture(perform: onPlayWord)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("播放单词 \(word)")
+        .accessibilityAction(named: "播放单词", onPlayWord)
     }
 }
 
