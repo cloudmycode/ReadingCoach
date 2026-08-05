@@ -68,6 +68,7 @@ final class ReviewTasksViewModel: ObservableObject {
             pendingTasks = pending.items
             completedTasks = completed.items
             toastMessage = nil
+            await AppIconBadgeManager.refresh(pendingCount: pendingTasks.count)
         } catch {
             if isCancellationError(error) {
                 return
@@ -87,6 +88,9 @@ final class ReviewTasksViewModel: ObservableObject {
         completedTasks = []
         closeSession()
         toastMessage = nil
+        Task {
+            await AppIconBadgeManager.clear()
+        }
     }
 
     func startSession() {

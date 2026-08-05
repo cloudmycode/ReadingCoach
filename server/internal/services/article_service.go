@@ -25,6 +25,68 @@ const SentenceCoachPromptTemplate = `回答用户关于当前句子的问题。
 只返回 JSON：
 {"answer":"简洁中文回答","highlights":["要点1","要点2"]}`
 
+const SentenceTranslationPromptTemplate = `请把下面修改后的英文句子准确、自然地翻译为简体中文。
+只返回 JSON，不要添加解释或 Markdown：{"translation":"中文翻译"}`
+
+// ArticleAnalysisJSONSchema 文章拆句结构化输出 schema。
+const ArticleAnalysisJSONSchema = `{
+  "type": "object",
+  "properties": {
+    "title": {"type": "string"},
+    "sentences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "original": {"type": "string"},
+          "translation": {"type": "string"}
+        },
+        "required": ["original", "translation"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["title", "sentences"],
+  "additionalProperties": false
+}`
+
+// WordExplainJSONSchema 单词解释结构化输出 schema。
+const WordExplainJSONSchema = `{
+  "type": "object",
+  "properties": {
+    "word": {"type": "string"},
+    "part_of_speech": {"type": "string"},
+    "meaning": {"type": "string"},
+    "tip": {"type": "string"}
+  },
+  "required": ["word", "part_of_speech", "meaning", "tip"],
+  "additionalProperties": false
+}`
+
+// SentenceCoachJSONSchema 句子问答结构化输出 schema。
+const SentenceCoachJSONSchema = `{
+  "type": "object",
+  "properties": {
+    "answer": {"type": "string"},
+    "highlights": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "required": ["answer", "highlights"],
+  "additionalProperties": false
+}`
+
+// SentenceTranslationJSONSchema 句子翻译结构化输出 schema。
+const SentenceTranslationJSONSchema = `{
+  "type": "object",
+  "properties": {
+    "translation": {"type": "string"}
+  },
+  "required": ["translation"],
+  "additionalProperties": false
+}`
+
 // ArticleSentenceInput 表示待写入 article_sentences 的句子
 type ArticleSentenceInput struct {
 	Original    string `json:"original"`

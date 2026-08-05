@@ -9,6 +9,7 @@ import SwiftUI
 import Combine
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var loginViewModel = LoginViewModel()
     @State private var isLoggedIn: Bool = false
     @State private var activeUserId: String?
@@ -25,6 +26,23 @@ struct ContentView: View {
         }
         .onAppear {
             checkLoginStatus()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, isLoggedIn else { return }
+            Task {
+                await AppIconBadgeManager.refreshFromServer()
+            }
+        }
+        .onChange(of: isLoggedIn) { _, loggedIn in
+            if loggedIn {
+                Task {
+                    await AppIconBadgeManager.refreshFromServer()
+                }
+            } else {
+                Task {
+                    await AppIconBadgeManager.clear()
+                }
+            }
         }
         .onReceive(loginViewModel.$loginSuccess.removeDuplicates()) { success in
             guard success else { return }
@@ -48,6 +66,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .userDidSwitch)) { _ in
             activeUserId = UserManager.shared.currentUserId()
+            Task {
+                await AppIconBadgeManager.refreshFromServer()
+            }
         }
     }
 
@@ -57,6 +78,9 @@ struct ContentView: View {
             UserScopedStorage.activateCurrentUserScope()
             activeUserId = user.id
             isLoggedIn = true
+            Task {
+                await AppIconBadgeManager.refreshFromServer()
+            }
         } else {
             if UserManager.shared.currentUser() != nil {
                 UserManager.shared.logoutCurrentUser()
@@ -65,6 +89,9 @@ struct ContentView: View {
             }
             activeUserId = nil
             isLoggedIn = false
+            Task {
+                await AppIconBadgeManager.clear()
+            }
         }
     }
 

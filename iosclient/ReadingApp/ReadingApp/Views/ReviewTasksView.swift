@@ -113,7 +113,7 @@ struct ReviewTasksView: View {
             ForEach(viewModel.pendingTasks) { task in
                 WordReviewPreviewCard(
                     word: task.word,
-                    articleTitle: task.articleTitle,
+                    sentence: task.sentenceOriginal,
                     accentColor: Color(red: 0.0, green: 0.4, blue: 1.0)
                 )
             }
@@ -205,7 +205,7 @@ struct ReviewTasksView: View {
 
 private struct WordReviewPreviewCard: View {
     let word: String
-    let articleTitle: String
+    let sentence: String
     let accentColor: Color
 
     var body: some View {
@@ -218,11 +218,12 @@ private struct WordReviewPreviewCard: View {
                 Text(word)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-                Text(articleTitle.isEmpty ? "来自阅读文章" : "来自 \(articleTitle)")
+                Text(sentence.isEmpty ? "暂无例句" : sentence)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
+                    .lineLimit(2)
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(16)
         .background(Color.white)
@@ -274,8 +275,7 @@ private struct CompletedWordReviewDaySection: View {
                 ForEach(group.tasks) { task in
                     WordReviewCompletedCard(
                         word: task.word,
-                        meaning: task.meaning,
-                        articleTitle: task.articleTitle,
+                        sentence: task.sentenceOriginal,
                         resultLabel: task.resultLabel,
                         isRecognized: task.isRecognized,
                         isSelected: selectedTaskId == task.id,
@@ -302,8 +302,7 @@ private struct CompletedWordReviewDaySection: View {
 
 private struct WordReviewCompletedCard: View {
     let word: String
-    let meaning: String
-    let articleTitle: String
+    let sentence: String
     let resultLabel: String?
     let isRecognized: Bool
     let isSelected: Bool
@@ -341,14 +340,10 @@ private struct WordReviewCompletedCard: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44))
             }
-            if !meaning.isEmpty {
-                Text(meaning)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
-            }
-            Text(articleTitle.isEmpty ? "来自阅读文章" : "来自 \(articleTitle)")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
+            Text(sentence.isEmpty ? "暂无例句" : sentence)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
+                .lineLimit(3)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

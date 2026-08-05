@@ -449,7 +449,12 @@ func (h *ArticleHandler) ExplainSentenceWord(c *gin.Context) {
 			word,
 		)
 
-		raw, aiErr := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+		raw, aiErr := h.textAnalyzer.CompleteJSONPrompt(
+			c.Request.Context(),
+			prompt,
+			"word_explain",
+			services.WordExplainJSONSchema,
+		)
 		if aiErr != nil {
 			logger.Error("❌ 单词解释失败: %v", aiErr)
 			jsonError(c, http.StatusInternalServerError, "生成单词解释失败")
@@ -525,12 +530,16 @@ func (h *ArticleHandler) UpdateSentence(c *gin.Context) {
 		h.handleSentenceContextError(c, err)
 		return
 	}
-	prompt := fmt.Sprintf(`请把下面修改后的英文句子准确、自然地翻译为简体中文。
-只返回 JSON，不要添加解释或 Markdown：{"translation":"中文翻译"}
+	prompt := fmt.Sprintf(`%s
 
 文章标题：%s
-英文句子：%s`, sentence.ArticleTitle, original)
-	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+英文句子：%s`, services.SentenceTranslationPromptTemplate, sentence.ArticleTitle, original)
+	raw, err := h.textAnalyzer.CompleteJSONPrompt(
+		c.Request.Context(),
+		prompt,
+		"sentence_translation",
+		services.SentenceTranslationJSONSchema,
+	)
 	if err != nil {
 		logger.Error("❌ 句子翻译失败: %v", err)
 		jsonError(c, http.StatusInternalServerError, "生成句子翻译失败")
@@ -595,7 +604,12 @@ func (h *ArticleHandler) AskSentenceQuestion(c *gin.Context) {
 		question,
 	)
 
-	raw, err := h.textAnalyzer.CompleteTextPrompt(c.Request.Context(), prompt)
+	raw, err := h.textAnalyzer.CompleteJSONPrompt(
+		c.Request.Context(),
+		prompt,
+		"sentence_coach",
+		services.SentenceCoachJSONSchema,
+	)
 	if err != nil {
 		logger.Error("❌ 句子问答失败: %v", err)
 		jsonError(c, http.StatusInternalServerError, "生成问答失败")

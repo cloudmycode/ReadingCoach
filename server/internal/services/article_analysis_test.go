@@ -49,3 +49,53 @@ func TestParseArticleAnalysisJSONSkipsEmptyOriginal(t *testing.T) {
 		t.Fatalf("unexpected sentences: %#v", result.Sentences)
 	}
 }
+
+func TestParseArticleAnalysisJSONStripsTrailingGarbage(t *testing.T) {
+	raw := `{"title":"T","sentences":[{"original":"Hi.","translation":"你好。"}]}ok`
+
+	result, err := ParseArticleAnalysisJSON(raw)
+	if err != nil {
+		t.Fatalf("ParseArticleAnalysisJSON failed: %v", err)
+	}
+	if result.Title != "T" || len(result.Sentences) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestValidateRawJSONArticleAnalysis(t *testing.T) {
+	valid := `{"title":"T","sentences":[{"original":"Hi.","translation":"你好。"}]}`
+	if err := validateRawJSON(valid, "article_analysis", ArticleAnalysisJSONSchema); err != nil {
+		t.Fatalf("expected valid json, got %v", err)
+	}
+
+	invalid := `{"title":"T","sentences":[{"original":"Hi.","translation":"你好。"}]}ok`
+	if err := validateRawJSON(invalid, "article_analysis", ArticleAnalysisJSONSchema); err == nil {
+		t.Fatal("expected invalid json to fail")
+	}
+
+	extracted := extractJSONObject(invalid)
+	if err := validateRawJSON(extracted, "article_analysis", ArticleAnalysisJSONSchema); err != nil {
+		t.Fatalf("extracted json should validate: %v", err)
+	}
+}
+
+func TestBuildResponseFormatPrefersSchema(t *testing.T) {
+	format := buildResponseFormat(true, "article_analysis", ArticleAnalysisJSONSchema)
+	if format.Type != "json_schema" || format.JSONSchema == nil || !format.JSONSchema.Strict {
+		t.Fatalf("unexpected format: %#v", format)
+	}
+
+	fallback := buildResponseFormat(false, "article_analysis", ArticleAnalysisJSONSchema)
+	if fallback.Type != "json_object" || fallback.JSONSchema != nil {
+		t.Fatalf("unexpected fallback format: %#v", fallback)
+	}
+}
+
+func TestIsStructuredFormatUnsupported(t *testing.T) {
+	if !isStructuredFormatUnsupported(`qwen error(status=400): response_format json_schema unsupported`) {
+		t.Fatal("expected unsupported detection")
+	}
+	if isStructuredFormatUnsupported(`qwen error(status=500): internal error`) {
+		t.Fatal("did not expect unsupported detection")
+	}
+}

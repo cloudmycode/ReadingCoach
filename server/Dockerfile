@@ -1,6 +1,5 @@
-# syntax=docker/dockerfile:1
-
 # ---------- 构建阶段：静态编译 Linux 二进制 ----------
+# 不使用 # syntax=docker/dockerfile:1，避免构建前必须拉取 docker/dockerfile（国内常超时）
 FROM golang:1.24-alpine AS builder
 
 # 国内服务器构建可用 --build-arg GOPROXY=https://goproxy.cn,direct 加速
