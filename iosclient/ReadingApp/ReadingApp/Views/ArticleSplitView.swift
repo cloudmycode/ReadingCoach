@@ -11,12 +11,24 @@ struct ArticleSplitView: View {
     @StateObject private var reviewTasksViewModel = ReviewTasksViewModel()
     @StateObject private var wordBookViewModel = WordBookViewModel()
     @State private var selectedArticleId: String?
+    @State private var focusSentenceId: Int?
     @State private var isSidebarCollapsed = false
     @State private var isDraftPresented = false
     @State private var isStatsPresented = false
     @State private var selectedSidebarTab: SplitSidebarTab = .list
 
     private let sidebarWidth: CGFloat = 350
+
+    private var sidebarTitle: String {
+        switch selectedSidebarTab {
+        case .wordBook:
+            return "单词本"
+        case .tasks:
+            return "任务"
+        case .list:
+            return "文章列表"
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -103,7 +115,7 @@ struct ArticleSplitView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
-                Text(selectedSidebarTab == .wordBook ? "单词本" : "Library")
+                Text(sidebarTitle)
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
@@ -172,8 +184,9 @@ struct ArticleSplitView: View {
                 if selectedSidebarTab == .tasks {
                     ReviewTasksView(
                         viewModel: reviewTasksViewModel,
-                        onOpenArticle: { articleId, _ in
+                        onOpenArticle: { articleId, _, sentenceId in
                             selectedArticleId = articleId
+                            focusSentenceId = sentenceId
                             selectedSidebarTab = .list
                         },
                         onAddArticle: {
@@ -210,6 +223,7 @@ struct ArticleSplitView: View {
                         showsOpenArticleButton: false,
                         onOpenArticle: { articleId in
                             selectedArticleId = articleId
+                            focusSentenceId = nil
                             selectedSidebarTab = .list
                         }
                     )
@@ -232,9 +246,10 @@ struct ArticleSplitView: View {
                 ArticleDetailView(
                     articleId: selectedArticle.id,
                     articleTitle: selectedArticle.title,
-                    showsBackButton: false
+                    showsBackButton: false,
+                    focusSentenceId: focusSentenceId
                 )
-                .id("\(selectedArticle.id)-\(selectedArticle.title)")
+                .id("\(selectedArticle.id)-\(selectedArticle.title)-\(focusSentenceId.map(String.init) ?? "none")")
 
                 if isSidebarCollapsed {
                     expandButton
@@ -300,6 +315,7 @@ struct ArticleSplitView: View {
                             HStack(spacing: 0) {
                                 Button {
                                     selectedArticleId = article.id
+                                    focusSentenceId = nil
                                     if selectedSidebarTab == .wordBook {
                                         wordBookViewModel.setFilterArticleId(article.id)
                                     }

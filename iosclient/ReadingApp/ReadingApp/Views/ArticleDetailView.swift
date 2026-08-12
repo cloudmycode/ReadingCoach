@@ -14,6 +14,7 @@ struct ArticleDetailView: View {
     @Environment(\.appNavigationPath) private var appNavigationPath
     @Environment(\.scenePhase) private var scenePhase
     private let showsBackButton: Bool
+    private let focusSentenceId: Int?
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
     @State private var questionDraft = ""
@@ -28,6 +29,7 @@ struct ArticleDetailView: View {
     @State private var isSavingSentence = false
     @State private var hasActivatedChatScroll = false
     @State private var pendingScrollSentenceIndex: Int?
+    @State private var didApplyFocusSentence = false
     @State private var articleScrollOffset: CGFloat = 0
     @State private var articleContentHeight: CGFloat = 1
     @State private var articleViewportHeight: CGFloat = 1
@@ -35,9 +37,15 @@ struct ArticleDetailView: View {
     @State private var panelHeight: CGFloat = 430
     @GestureState private var panelDragOffset: CGFloat = 0
 
-    init(articleId: String, articleTitle: String, showsBackButton: Bool = true) {
+    init(
+        articleId: String,
+        articleTitle: String,
+        showsBackButton: Bool = true,
+        focusSentenceId: Int? = nil
+    ) {
         _viewModel = StateObject(wrappedValue: ArticleDetailViewModel(articleId: articleId, initialTitle: articleTitle))
         self.showsBackButton = showsBackButton
+        self.focusSentenceId = focusSentenceId
     }
 
     var body: some View {
@@ -88,6 +96,10 @@ struct ArticleDetailView: View {
             .navigationBarBackButtonHidden(true)
             .task {
                 await viewModel.loadArticleIfNeeded()
+                applyFocusSentenceIfNeeded()
+            }
+            .onChange(of: viewModel.sentences.count) { _, _ in
+                applyFocusSentenceIfNeeded()
             }
             .onDisappear(perform: handleDisappear)
             .alert(
@@ -156,6 +168,21 @@ struct ArticleDetailView: View {
         viewModel.stopReadingDurationTracking()
     }
 
+    private func applyFocusSentenceIfNeeded() {
+        guard !didApplyFocusSentence,
+              let focusSentenceId,
+              let index = viewModel.sentences.firstIndex(where: { $0.sentenceId == focusSentenceId }) else {
+            return
+        }
+        didApplyFocusSentence = true
+        selectedSentenceIndex = index
+        // 等布局与底部面板出现后再滚动，避免定位不准
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            pendingScrollSentenceIndex = index
+        }
+    }
+
     private var topBar: some View {
         HStack {
             if showsBackButton {
@@ -172,7 +199,7 @@ struct ArticleDetailView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 16, weight: .bold))
-                        Text("Library")
+                        Text("文章列表")
                             .font(.system(size: 18, weight: .semibold))
                     }
                     .foregroundColor(Color(red: 0.0, green: 0.4, blue: 1.0))

@@ -18,12 +18,14 @@ private enum ReviewTaskTab: String, CaseIterable, Identifiable {
 
 struct ReviewTasksView: View {
     @ObservedObject var viewModel: ReviewTasksViewModel
-    let onOpenArticle: (String, String) -> Void
+    let onOpenArticle: (String, String, Int) -> Void
     let onAddArticle: () -> Void
 
     @State private var selectedTab: ReviewTaskTab = .current
     @State private var expandedCompletedDays: Set<Date> = []
+    @State private var selectedPendingTaskId: String?
     @State private var selectedCompletedTaskId: String?
+    @State private var previewPlaybackTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,12 +56,17 @@ struct ReviewTasksView: View {
         .onChange(of: viewModel.completedTasks) { _, _ in
             expandTodayCompletedGroupIfNeeded()
         }
+        .onDisappear {
+            previewPlaybackTask?.cancel()
+            previewPlaybackTask = nil
+            ArticleAudioManager.shared.stop()
+        }
         .fullScreenCover(isPresented: $viewModel.isSessionPresented) {
             WordReviewSessionView(
                 viewModel: viewModel,
-                onOpenArticle: { articleId, title in
+                onOpenArticle: { articleId, title, sentenceId in
                     viewModel.closeSession()
-                    onOpenArticle(articleId, title)
+                    onOpenArticle(articleId, title, sentenceId)
                 }
             )
         }
@@ -111,10 +118,25 @@ struct ReviewTasksView: View {
             )
         } else {
             ForEach(viewModel.pendingTasks) { task in
-                WordReviewPreviewCard(
+                WordReviewCompletedCard(
                     word: task.word,
+                    meaning: task.meaning,
                     sentence: task.sentenceOriginal,
-                    accentColor: Color(red: 0.0, green: 0.4, blue: 1.0)
+                    sentenceTranslation: task.sentenceTranslation,
+                    resultLabel: nil,
+                    isRecognized: false,
+                    isSelected: selectedPendingTaskId == task.id,
+                    accentColor: Color(red: 0.0, green: 0.4, blue: 1.0),
+                    selectedBackground: Color(red: 0.91, green: 0.96, blue: 1.0),
+                    onPlayWord: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedPendingTaskId = task.id
+                        }
+                        playWordThenSentence(task)
+                    },
+                    onOpenArticle: {
+                        onOpenArticle(task.articleId, task.articleTitle, task.sentenceId)
+                    }
                 )
             }
         }
@@ -138,6 +160,9 @@ struct ReviewTasksView: View {
 
             if !viewModel.pendingTasks.isEmpty {
                 Button {
+                    previewPlaybackTask?.cancel()
+                    previewPlaybackTask = nil
+                    ArticleAudioManager.shared.stop()
                     viewModel.startSession()
                 } label: {
                     Text("开始复习")
@@ -188,6 +213,9 @@ struct ReviewTasksView: View {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedCompletedTaskId = taskId
                         }
+                        if let task = group.tasks.first(where: { $0.id == taskId }) {
+                            playWordThenSentence(task)
+                        }
                     },
                     onOpenArticle: onOpenArticle
                 )
@@ -201,37 +229,27 @@ struct ReviewTasksView: View {
             expandedCompletedDays.insert(today)
         }
     }
-}
 
-private struct WordReviewPreviewCard: View {
-    let word: String
-    let sentence: String
-    let accentColor: Color
-
-    var body: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(accentColor)
-                .frame(width: 6, height: 36)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(word)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-                Text(sentence.isEmpty ? "暂无例句" : sentence)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
+    private func playWordThenSentence(_ task: WordReviewTaskItem) {
+        previewPlaybackTask?.cancel()
+        ArticleAudioManager.shared.stop()
+        previewPlaybackTask = Task {
+            try? await ArticleAudioManager.shared.speak(
+                sentenceId: nil,
+                text: task.word,
+                type: .original,
+                style: .focusedSentence
+            )
+            guard !Task.isCancelled else { return }
+            let sentence = task.sentenceOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sentence.isEmpty else { return }
+            try? await ArticleAudioManager.shared.speak(
+                sentenceId: task.sentenceId,
+                text: sentence,
+                type: .original,
+                style: .focusedSentence
+            )
         }
-        .padding(16)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
-        )
     }
 }
 
@@ -241,7 +259,7 @@ private struct CompletedWordReviewDaySection: View {
     let selectedTaskId: String?
     let onToggle: () -> Void
     let onSelectTask: (String) -> Void
-    let onOpenArticle: (String, String) -> Void
+    let onOpenArticle: (String, String, Int) -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -275,23 +293,17 @@ private struct CompletedWordReviewDaySection: View {
                 ForEach(group.tasks) { task in
                     WordReviewCompletedCard(
                         word: task.word,
+                        meaning: task.meaning,
                         sentence: task.sentenceOriginal,
+                        sentenceTranslation: task.sentenceTranslation,
                         resultLabel: task.resultLabel,
                         isRecognized: task.isRecognized,
                         isSelected: selectedTaskId == task.id,
                         onPlayWord: {
                             onSelectTask(task.id)
-                            Task {
-                                try? await ArticleAudioManager.shared.speak(
-                                    sentenceId: nil,
-                                    text: task.word,
-                                    type: .original,
-                                    style: .focusedSentence
-                                )
-                            }
                         },
                         onOpenArticle: {
-                            onOpenArticle(task.articleId, task.articleTitle)
+                            onOpenArticle(task.articleId, task.articleTitle, task.sentenceId)
                         }
                     )
                 }
@@ -302,22 +314,26 @@ private struct CompletedWordReviewDaySection: View {
 
 private struct WordReviewCompletedCard: View {
     let word: String
+    let meaning: String
     let sentence: String
+    let sentenceTranslation: String
     let resultLabel: String?
     let isRecognized: Bool
     let isSelected: Bool
+    var accentColor: Color = Color(red: 0.02, green: 0.7, blue: 0.44)
+    var selectedBackground: Color = Color(red: 0.9, green: 0.98, blue: 0.94)
     let onPlayWord: () -> Void
     let onOpenArticle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text(word)
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44))
+                    .foregroundColor(accentColor)
                 Image(systemName: "speaker.wave.2.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44).opacity(0.7))
+                    .foregroundColor(accentColor.opacity(0.7))
                 if let resultLabel {
                     Text(resultLabel)
                         .font(.system(size: 11, weight: .bold))
@@ -338,26 +354,37 @@ private struct WordReviewCompletedCard: View {
                 Spacer()
                 Button("打开原文", action: onOpenArticle)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color(red: 0.02, green: 0.7, blue: 0.44))
+                    .foregroundColor(accentColor)
             }
+
+            if !meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(meaning)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
+                    .lineLimit(2)
+            }
+
             Text(sentence.isEmpty ? "暂无例句" : sentence)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
                 .lineLimit(3)
+
+            if !sentenceTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(sentenceTranslation)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color(red: 0.55, green: 0.62, blue: 0.72))
+                    .lineLimit(3)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-            ? Color(red: 0.9, green: 0.98, blue: 0.94)
-            : Color.white
-        )
+        .background(isSelected ? selectedBackground : Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(
                     isSelected
-                    ? Color(red: 0.02, green: 0.7, blue: 0.44).opacity(0.5)
+                    ? accentColor.opacity(0.5)
                     : Color(red: 0.92, green: 0.95, blue: 0.98),
                     lineWidth: isSelected ? 1.5 : 1
                 )
@@ -365,8 +392,8 @@ private struct WordReviewCompletedCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .onTapGesture(perform: onPlayWord)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("播放单词 \(word)")
-        .accessibilityAction(named: "播放单词", onPlayWord)
+        .accessibilityLabel("播放单词与句子 \(word)")
+        .accessibilityAction(named: "播放单词与句子", onPlayWord)
     }
 }
 
@@ -403,7 +430,7 @@ private struct ReviewTaskEmptyState: View {
 
 struct WordReviewSessionView: View {
     @ObservedObject var viewModel: ReviewTasksViewModel
-    let onOpenArticle: (String, String) -> Void
+    let onOpenArticle: (String, String, Int) -> Void
 
     @AppStorage("reviewAutoPlayWord") private var autoPlayWord = false
     @AppStorage("reviewAutoPlaySentence") private var autoPlaySentence = false
@@ -585,7 +612,7 @@ struct WordReviewSessionView: View {
 
                 Button {
                     cancelAutoPlay()
-                    onOpenArticle(task.articleId, task.articleTitle)
+                    onOpenArticle(task.articleId, task.articleTitle, task.sentenceId)
                 } label: {
                     Text("打开原文")
                         .font(.system(size: 14, weight: .semibold))

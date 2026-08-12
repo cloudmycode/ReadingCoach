@@ -8,7 +8,7 @@
 import SwiftUI
 
 enum ArticleRoute: Hashable {
-    case article(ArticleItem)
+    case article(ArticleItem, focusSentenceId: Int?)
     case cameraResult(String)
 }
 
@@ -128,7 +128,7 @@ struct ArticleListView: View {
         case "wordBook":
             return "单词本"
         default:
-            return "Library"
+            return "文章列表"
         }
     }
 
@@ -137,7 +137,7 @@ struct ArticleListView: View {
             if viewModel.currentTab == "tasks" {
                 ReviewTasksView(
                     viewModel: reviewTasksViewModel,
-                    onOpenArticle: { articleId, articleTitle in
+                    onOpenArticle: { articleId, articleTitle, sentenceId in
                         let article = viewModel.articles.first(where: { $0.id == articleId }) ?? ArticleItem(
                             id: articleId,
                             articleId: 0,
@@ -149,7 +149,7 @@ struct ArticleListView: View {
                             lastReadAt: nil
                         )
                         appNavigationPath?.wrappedValue.append(
-                            AppNavigationRoute.articleRoute(.article(article))
+                            AppNavigationRoute.articleRoute(.article(article, focusSentenceId: sentenceId))
                         )
                     },
                     onAddArticle: {
@@ -171,7 +171,7 @@ struct ArticleListView: View {
                             lastReadAt: nil
                         )
                         appNavigationPath?.wrappedValue.append(
-                            AppNavigationRoute.articleRoute(.article(article))
+                            AppNavigationRoute.articleRoute(.article(article, focusSentenceId: nil))
                         )
                     }
                 )
@@ -226,7 +226,7 @@ struct ArticleListView: View {
             ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
                 HStack(spacing: 0) {
                     Button {
-                        appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article)))
+                        appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article, focusSentenceId: nil)))
                     } label: {
                         ArticleLibraryRow(
                             article: article,

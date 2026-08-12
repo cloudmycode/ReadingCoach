@@ -22,6 +22,7 @@ final class ReviewTasksViewModel: ObservableObject {
     @Published var isSubmitting = false
     @Published var toastMessage: String?
     private var reviewDurationTracker: StudyDurationTracker?
+    private var audioPreloadTask: Task<Void, Never>?
 
     var currentSessionTask: WordReviewTaskItem? {
         guard sessionIndex >= 0, sessionIndex < sessionQueue.count else { return nil }
@@ -69,6 +70,7 @@ final class ReviewTasksViewModel: ObservableObject {
             completedTasks = completed.items
             toastMessage = nil
             await AppIconBadgeManager.refresh(pendingCount: pendingTasks.count)
+            preloadTaskAudio(pending: pendingTasks, completed: completedTasks)
         } catch {
             if isCancellationError(error) {
                 return
@@ -78,6 +80,8 @@ final class ReviewTasksViewModel: ObservableObject {
     }
 
     func reloadForCurrentUser() {
+        audioPreloadTask?.cancel()
+        audioPreloadTask = nil
         summary = WordReviewTodaySummary(
             dueCount: 0,
             completedCount: 0,
@@ -175,6 +179,33 @@ final class ReviewTasksViewModel: ObservableObject {
     private func stopReviewDurationTracking() {
         reviewDurationTracker?.stop()
         reviewDurationTracker = nil
+    }
+
+    /// 后台预生成单词/例句音频，避免点卡片时再等 Edge TTS。
+    private func preloadTaskAudio(pending: [WordReviewTaskItem], completed: [WordReviewTaskItem]) {
+        audioPreloadTask?.cancel()
+        // 已完成只预热最近若干条，避免一次拉太多合成请求。
+        let tasks = pending + Array(completed.prefix(30))
+        audioPreloadTask = Task {
+            for task in tasks {
+                if Task.isCancelled { return }
+                await ArticleAudioManager.shared.preload(
+                    sentenceId: nil,
+                    text: task.word,
+                    type: .original,
+                    style: .focusedSentence
+                )
+                if Task.isCancelled { return }
+                let sentence = task.sentenceOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !sentence.isEmpty else { continue }
+                await ArticleAudioManager.shared.preload(
+                    sentenceId: task.sentenceId,
+                    text: sentence,
+                    type: .original,
+                    style: .focusedSentence
+                )
+            }
+        }
     }
 }
 

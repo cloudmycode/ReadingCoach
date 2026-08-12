@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "Gemini_Generated_Image_pe0mbupe0mbupe0m.png",
+      "filename" : "icon_blue.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "Gemini_Generated_Image_pe0mbupe0mbupe0m 1.png",
+      "filename" : "icon_blue 1.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "Gemini_Generated_Image_pe0mbupe0mbupe0m 2.png",
+      "filename" : "icon_blue 2.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

@@ -47,8 +47,12 @@ struct MainSelectionView: View {
                                 switch route {
                                 case .articleRoute(let articleRoute):
                                     switch articleRoute {
-                                    case .article(let article):
-                                        ArticleDetailView(articleId: article.id, articleTitle: article.title)
+                                    case .article(let article, let focusSentenceId):
+                                        ArticleDetailView(
+                                            articleId: article.id,
+                                            articleTitle: article.title,
+                                            focusSentenceId: focusSentenceId
+                                        )
                                             .environment(\.appNavigationPath, $navigationPath)
                                     case .cameraResult(let articleId):
                                         ArticleDetailView(articleId: articleId, articleTitle: "图片解析文章")
