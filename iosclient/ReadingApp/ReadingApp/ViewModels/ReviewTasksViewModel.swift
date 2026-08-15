@@ -7,7 +7,7 @@ final class ReviewTasksViewModel: ObservableObject {
         dueCount: 0,
         completedCount: 0,
         dailyLimit: 0,
-        dailyTarget: 25,
+        dailyTarget: 30,
         recommendedCount: 0,
         backlogCount: 0,
         streakDays: 0
@@ -108,7 +108,7 @@ final class ReviewTasksViewModel: ObservableObject {
             dueCount: 0,
             completedCount: 0,
             dailyLimit: 0,
-            dailyTarget: 25,
+            dailyTarget: 30,
             recommendedCount: 0,
             backlogCount: 0,
             streakDays: 0

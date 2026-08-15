@@ -9,6 +9,21 @@ struct WordBookPlaybackOptions {
     var hasAnyEnabled: Bool {
         playWord || playWordTranslation || playSentence || playSentenceTranslation
     }
+
+    /// 与 `@AppStorage` 设置项保持一致，连续朗读过程中可随时重读。
+    static func loadFromUserDefaults() -> WordBookPlaybackOptions {
+        let defaults = UserDefaults.standard
+        func boolValue(forKey key: String, defaultValue: Bool) -> Bool {
+            guard defaults.object(forKey: key) != nil else { return defaultValue }
+            return defaults.bool(forKey: key)
+        }
+        return WordBookPlaybackOptions(
+            playWord: boolValue(forKey: "wordBookAutoPlayWord", defaultValue: true),
+            playWordTranslation: boolValue(forKey: "wordBookAutoPlayWordTranslation", defaultValue: false),
+            playSentence: boolValue(forKey: "wordBookAutoPlaySentence", defaultValue: false),
+            playSentenceTranslation: boolValue(forKey: "wordBookAutoPlaySentenceTranslation", defaultValue: false)
+        )
+    }
 }
 
 struct WordBookSettingsMenu: View {

@@ -308,7 +308,7 @@ struct WordReviewTodaySummary: Codable {
         dueCount: Int,
         completedCount: Int,
         dailyLimit: Int,
-        dailyTarget: Int = 25,
+        dailyTarget: Int = 30,
         recommendedCount: Int = 0,
         backlogCount: Int = 0,
         streakDays: Int
@@ -327,7 +327,7 @@ struct WordReviewTodaySummary: Codable {
         dueCount = try container.decode(Int.self, forKey: .dueCount)
         completedCount = try container.decode(Int.self, forKey: .completedCount)
         dailyLimit = try container.decodeIfPresent(Int.self, forKey: .dailyLimit) ?? 0
-        dailyTarget = try container.decodeIfPresent(Int.self, forKey: .dailyTarget) ?? 25
+        dailyTarget = try container.decodeIfPresent(Int.self, forKey: .dailyTarget) ?? 30
         recommendedCount = try container.decodeIfPresent(Int.self, forKey: .recommendedCount)
             ?? min(dueCount, max(0, dailyTarget - completedCount))
         backlogCount = try container.decodeIfPresent(Int.self, forKey: .backlogCount)

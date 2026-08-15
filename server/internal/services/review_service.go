@@ -9,7 +9,7 @@ import (
 )
 
 // DailyWordReviewTarget 每日建议复习量（软目标，不是硬上限）。
-const DailyWordReviewTarget = 25
+const DailyWordReviewTarget = 30
 
 // completedWordReviewHistoryDays 已完成任务回溯天数。
 const completedWordReviewHistoryDays = 90

@@ -188,7 +188,7 @@ const summary = ref<WordReviewSummary>({
   due_count: 0,
   completed_count: 0,
   daily_limit: 0,
-  daily_target: 25,
+  daily_target: 30,
   recommended_count: 0,
   backlog_count: 0,
   streak_days: 0,

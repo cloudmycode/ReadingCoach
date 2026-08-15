@@ -17,12 +17,6 @@ final class WordBookViewModel: ObservableObject {
     @Published var toastMessage: String?
 
     private var playbackTask: Task<Void, Never>?
-    private var playbackOptions = WordBookPlaybackOptions(
-        playWord: false,
-        playWordTranslation: false,
-        playSentence: false,
-        playSentenceTranslation: false
-    )
 
     var displayedEntries: [WordBookEntry] {
         guard let filterArticleId, !filterArticleId.isEmpty else {
@@ -140,7 +134,6 @@ final class WordBookViewModel: ObservableObject {
     private func startPlaybackAll(options: WordBookPlaybackOptions) {
         guard !displayedEntries.isEmpty, options.hasAnyEnabled else { return }
         stopPlaybackAll()
-        playbackOptions = options
         isPlayingAll = true
         playbackTask = Task { [weak self] in
             await self?.playAllEntries()
@@ -156,9 +149,11 @@ final class WordBookViewModel: ObservableObject {
         }
 
         let playlist = displayedEntries
-        let options = playbackOptions
         for entry in playlist {
             if Task.isCancelled { break }
+            // 每个词开始前重读设置，中途改开关可立即作用于下一个词
+            let options = WordBookPlaybackOptions.loadFromUserDefaults()
+            guard options.hasAnyEnabled else { break }
             selectEntry(entry)
             await playEntry(entry, options: options)
         }
