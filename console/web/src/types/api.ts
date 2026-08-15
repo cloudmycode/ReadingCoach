@@ -69,6 +69,9 @@ export interface WordReviewSummary {
   due_count: number;
   completed_count: number;
   daily_limit: number;
+  daily_target: number;
+  recommended_count: number;
+  backlog_count: number;
   streak_days: number;
 }
 

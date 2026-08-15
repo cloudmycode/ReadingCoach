@@ -7,6 +7,9 @@ final class ReviewTasksViewModel: ObservableObject {
         dueCount: 0,
         completedCount: 0,
         dailyLimit: 0,
+        dailyTarget: 25,
+        recommendedCount: 0,
+        backlogCount: 0,
         streakDays: 0
     )
     @Published var pendingTasks: [WordReviewTaskItem] = []
@@ -38,6 +41,25 @@ final class ReviewTasksViewModel: ObservableObject {
     /// 是否有待完成的复习任务（用于任务 Tab 红点）。
     var hasPendingTasks: Bool {
         !pendingTasks.isEmpty
+    }
+
+    /// 下一场会话建议词数（优先今日目标剩余，否则按目标批量清积压）。
+    var nextSessionBatchSize: Int {
+        if summary.recommendedCount > 0 {
+            return min(summary.recommendedCount, pendingTasks.count)
+        }
+        return min(max(summary.dailyTarget, 1), pendingTasks.count)
+    }
+
+    var canContinueBacklog: Bool {
+        !pendingTasks.isEmpty
+    }
+
+    var primarySessionButtonTitle: String {
+        if summary.recommendedCount > 0 {
+            return "开始复习（\(nextSessionBatchSize)）"
+        }
+        return "继续清积压（\(nextSessionBatchSize)）"
     }
 
     /// 已完成任务按本地日历日分组（新→旧）。
@@ -86,6 +108,9 @@ final class ReviewTasksViewModel: ObservableObject {
             dueCount: 0,
             completedCount: 0,
             dailyLimit: 0,
+            dailyTarget: 25,
+            recommendedCount: 0,
+            backlogCount: 0,
             streakDays: 0
         )
         pendingTasks = []
@@ -98,14 +123,35 @@ final class ReviewTasksViewModel: ObservableObject {
     }
 
     func startSession() {
+        startSession(batchSize: nextSessionBatchSize)
+    }
+
+    func startSession(batchSize: Int) {
         guard !pendingTasks.isEmpty else { return }
-        sessionQueue = pendingTasks
+        let size = max(1, min(batchSize, pendingTasks.count))
+        sessionQueue = Array(pendingTasks.prefix(size))
         sessionIndex = 0
         isRevealed = false
         isSessionFinished = false
         masteredInSession = 0
         againInSession = 0
         isSessionPresented = true
+        startReviewDurationTracking()
+    }
+
+    /// 本场结束后继续下一批积压，不关闭全屏会话。
+    func continueBacklogSession() {
+        let size = nextSessionBatchSize
+        guard size > 0 else {
+            closeSession()
+            return
+        }
+        sessionQueue = Array(pendingTasks.prefix(size))
+        sessionIndex = 0
+        isRevealed = false
+        isSessionFinished = false
+        masteredInSession = 0
+        againInSession = 0
         startReviewDurationTracking()
     }
 
@@ -184,8 +230,9 @@ final class ReviewTasksViewModel: ObservableObject {
     /// 后台预生成单词/例句音频，避免点卡片时再等 Edge TTS。
     private func preloadTaskAudio(pending: [WordReviewTaskItem], completed: [WordReviewTaskItem]) {
         audioPreloadTask?.cancel()
-        // 已完成只预热最近若干条，避免一次拉太多合成请求。
-        let tasks = pending + Array(completed.prefix(30))
+        // 预热下一场会话词 + 已完成最近若干条。
+        let sessionWarmup = Array(pending.prefix(max(nextSessionBatchSize, summary.dailyTarget)))
+        let tasks = sessionWarmup + Array(completed.prefix(30))
         audioPreloadTask = Task {
             for task in tasks {
                 if Task.isCancelled { return }

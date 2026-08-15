@@ -222,11 +222,17 @@
 
 ## 4.5 生词复习任务
 
-任务单位是 `user_word_book` 条目，不限制每日复习数量（`daily_limit` 为 `0` 表示不限）。
+任务单位是 `user_word_book` 条目。采用「每日软目标 + 积压优先队列」：
+
+- `daily_target`：每日建议量（当前 25），不是硬上限
+- `recommended_count`：今日建议再复习几个（`min(due, max(0, target - completed))`）
+- `backlog_count`：超出建议量的积压
+- 待复习列表按优先级排序：逾期越久越前 → 上次「还不熟」优先 → 新词稍后
+- `daily_limit`：兼容字段，恒为 `0`（无硬上限）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_limit`（`0`=不限） / `streak_days` |
+| GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_target` / `recommended_count` / `backlog_count` / `streak_days` |
 | GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 已复习历史（近 90 天，含 `result` / `log_id`） |
 | POST | `/api/review/tasks/:entry_id/result` | 提交结果：`{"result":"mastered"\|"again"}` |
 

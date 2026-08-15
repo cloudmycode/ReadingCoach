@@ -289,13 +289,61 @@ struct WordReviewTodaySummary: Codable {
     let dueCount: Int
     let completedCount: Int
     let dailyLimit: Int
+    let dailyTarget: Int
+    let recommendedCount: Int
+    let backlogCount: Int
     let streakDays: Int
 
     enum CodingKeys: String, CodingKey {
         case dueCount = "due_count"
         case completedCount = "completed_count"
         case dailyLimit = "daily_limit"
+        case dailyTarget = "daily_target"
+        case recommendedCount = "recommended_count"
+        case backlogCount = "backlog_count"
         case streakDays = "streak_days"
+    }
+
+    init(
+        dueCount: Int,
+        completedCount: Int,
+        dailyLimit: Int,
+        dailyTarget: Int = 25,
+        recommendedCount: Int = 0,
+        backlogCount: Int = 0,
+        streakDays: Int
+    ) {
+        self.dueCount = dueCount
+        self.completedCount = completedCount
+        self.dailyLimit = dailyLimit
+        self.dailyTarget = dailyTarget
+        self.recommendedCount = recommendedCount
+        self.backlogCount = backlogCount
+        self.streakDays = streakDays
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dueCount = try container.decode(Int.self, forKey: .dueCount)
+        completedCount = try container.decode(Int.self, forKey: .completedCount)
+        dailyLimit = try container.decodeIfPresent(Int.self, forKey: .dailyLimit) ?? 0
+        dailyTarget = try container.decodeIfPresent(Int.self, forKey: .dailyTarget) ?? 25
+        recommendedCount = try container.decodeIfPresent(Int.self, forKey: .recommendedCount)
+            ?? min(dueCount, max(0, dailyTarget - completedCount))
+        backlogCount = try container.decodeIfPresent(Int.self, forKey: .backlogCount)
+            ?? max(0, dueCount - recommendedCount)
+        streakDays = try container.decode(Int.self, forKey: .streakDays)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(dueCount, forKey: .dueCount)
+        try container.encode(completedCount, forKey: .completedCount)
+        try container.encode(dailyLimit, forKey: .dailyLimit)
+        try container.encode(dailyTarget, forKey: .dailyTarget)
+        try container.encode(recommendedCount, forKey: .recommendedCount)
+        try container.encode(backlogCount, forKey: .backlogCount)
+        try container.encode(streakDays, forKey: .streakDays)
     }
 }
 

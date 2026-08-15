@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// DailyWordReviewTarget 每日建议复习量（软目标，不是硬上限）。
+const DailyWordReviewTarget = 25
+
 // completedWordReviewHistoryDays 已完成任务回溯天数。
 const completedWordReviewHistoryDays = 90
 
@@ -34,10 +37,13 @@ type WordReviewTask struct {
 
 // WordReviewTodaySummary 今日复习概览。
 type WordReviewTodaySummary struct {
-	DueCount       int `json:"due_count"`
-	CompletedCount int `json:"completed_count"`
-	DailyLimit     int `json:"daily_limit"` // 0 表示不限制每日数量
-	StreakDays     int `json:"streak_days"`
+	DueCount          int `json:"due_count"`
+	CompletedCount    int `json:"completed_count"`
+	DailyLimit        int `json:"daily_limit"` // 兼容字段：0 表示无硬上限
+	DailyTarget       int `json:"daily_target"`
+	RecommendedCount  int `json:"recommended_count"`
+	BacklogCount      int `json:"backlog_count"`
+	StreakDays        int `json:"streak_days"`
 }
 
 // WordReviewResult 单次复习提交结果。
@@ -48,6 +54,30 @@ type WordReviewResult struct {
 	NextReviewAt   *time.Time
 	MasteryStatus  string
 	LastReviewedAt *time.Time
+}
+
+func buildWordReviewTodaySummary(dueCount, completedCount, streakDays int) *WordReviewTodaySummary {
+	remainingTarget := DailyWordReviewTarget - completedCount
+	if remainingTarget < 0 {
+		remainingTarget = 0
+	}
+	recommended := dueCount
+	if recommended > remainingTarget {
+		recommended = remainingTarget
+	}
+	backlog := dueCount - recommended
+	if backlog < 0 {
+		backlog = 0
+	}
+	return &WordReviewTodaySummary{
+		DueCount:         dueCount,
+		CompletedCount:   completedCount,
+		DailyLimit:       0,
+		DailyTarget:      DailyWordReviewTarget,
+		RecommendedCount: recommended,
+		BacklogCount:     backlog,
+		StreakDays:       streakDays,
+	}
 }
 
 func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID int) (*WordReviewTodaySummary, error) {
@@ -93,12 +123,7 @@ func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID i
 		return nil, err
 	}
 
-	return &WordReviewTodaySummary{
-		DueCount:       dueCount,
-		CompletedCount: completedCount,
-		DailyLimit:     0,
-		StreakDays:     stats.CurrentStreakDays,
-	}, nil
+	return buildWordReviewTodaySummary(dueCount, completedCount, stats.CurrentStreakDays), nil
 }
 
 func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, status string) ([]WordReviewTask, error) {
@@ -122,20 +147,35 @@ func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, st
 		return s.listCompletedWordReviewTasks(ctx, userID)
 	}
 
+	// 积压优先：逾期越久越前 → 上次「还不熟」优先 → 新词稍后 → 到期日/ID
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			0, w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
 			w.sentence_original, w.sentence_translation, w.article_id,
 			COALESCE(a.title, ''), w.sentence_id, w.review_step, w.next_review_at,
-			w.mastery_status, w.last_reviewed_at, ''
+			w.mastery_status, w.last_reviewed_at, COALESCE(lr.result, '')
 		FROM user_word_book w
 		LEFT JOIN articles a ON a.article_id = w.article_id
+		LEFT JOIN (
+			SELECT l.user_id, l.entry_id, l.result
+			FROM user_word_review_logs l
+			INNER JOIN (
+				SELECT user_id, entry_id, MAX(log_id) AS max_log_id
+				FROM user_word_review_logs
+				GROUP BY user_id, entry_id
+			) latest ON latest.max_log_id = l.log_id
+		) lr ON lr.user_id = w.user_id AND lr.entry_id = w.entry_id
 		WHERE w.user_id = ?
 		  AND w.mastery_status = 'learning'
 		  AND w.next_review_at IS NOT NULL
 		  AND w.next_review_at <= CURDATE()
 		  AND (w.last_reviewed_at IS NULL OR DATE(w.last_reviewed_at) < CURDATE())
-		ORDER BY w.next_review_at ASC, w.entry_id ASC
+		ORDER BY
+			DATEDIFF(CURDATE(), w.next_review_at) DESC,
+			CASE WHEN COALESCE(lr.result, '') = 'again' THEN 0 ELSE 1 END ASC,
+			CASE WHEN w.review_step <= 0 THEN 1 ELSE 0 END ASC,
+			w.next_review_at ASC,
+			w.entry_id ASC
 	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query word review tasks: %w", err)

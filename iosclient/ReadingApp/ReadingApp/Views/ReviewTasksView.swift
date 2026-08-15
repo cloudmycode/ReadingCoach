@@ -117,44 +117,74 @@ struct ReviewTasksView: View {
                 }
             )
         } else {
-            ForEach(viewModel.pendingTasks) { task in
-                WordReviewCompletedCard(
-                    word: task.word,
-                    meaning: task.meaning,
-                    sentence: task.sentenceOriginal,
-                    sentenceTranslation: task.sentenceTranslation,
-                    resultLabel: nil,
-                    isRecognized: false,
-                    isSelected: selectedPendingTaskId == task.id,
-                    accentColor: Color(red: 0.0, green: 0.4, blue: 1.0),
-                    selectedBackground: Color(red: 0.91, green: 0.96, blue: 1.0),
-                    onPlayWord: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedPendingTaskId = task.id
-                        }
-                        playWordThenSentence(task)
-                    },
-                    onOpenArticle: {
-                        onOpenArticle(task.articleId, task.articleTitle, task.sentenceId)
-                    }
-                )
+            let recommendedTasks = Array(viewModel.pendingTasks.prefix(max(viewModel.summary.recommendedCount, 0)))
+            let backlogTasks = Array(viewModel.pendingTasks.dropFirst(recommendedTasks.count))
+
+            if !recommendedTasks.isEmpty {
+                sectionHeader("今日推荐", count: recommendedTasks.count)
+                ForEach(recommendedTasks) { task in
+                    pendingCard(for: task)
+                }
+            }
+
+            if !backlogTasks.isEmpty {
+                sectionHeader("积压", count: backlogTasks.count)
+                ForEach(backlogTasks) { task in
+                    pendingCard(for: task)
+                }
             }
         }
     }
 
+    private func sectionHeader(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(Color(red: 0.35, green: 0.4, blue: 0.5))
+            Text("\(count)")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color(red: 0.6, green: 0.67, blue: 0.78))
+            Spacer()
+        }
+        .padding(.top, 4)
+    }
+
+    private func pendingCard(for task: WordReviewTaskItem) -> some View {
+        WordReviewCompletedCard(
+            word: task.word,
+            meaning: task.meaning,
+            sentence: task.sentenceOriginal,
+            sentenceTranslation: task.sentenceTranslation,
+            resultLabel: nil,
+            isRecognized: false,
+            isSelected: selectedPendingTaskId == task.id,
+            accentColor: Color(red: 0.0, green: 0.4, blue: 1.0),
+            selectedBackground: Color(red: 0.91, green: 0.96, blue: 1.0),
+            onPlayWord: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    selectedPendingTaskId = task.id
+                }
+                playWordThenSentence(task)
+            },
+            onOpenArticle: {
+                onOpenArticle(task.articleId, task.articleTitle, task.sentenceId)
+            }
+        )
+    }
+
     private var summaryCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("今日复习 \(viewModel.summary.completedCount) / \(viewModel.summary.dueCount + viewModel.summary.completedCount)")
+            Text("今日目标 \(viewModel.summary.completedCount) / \(viewModel.summary.dailyTarget)")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
-            Text("复习你查过的生词，巩固阅读中的薄弱点。到期的都会出现在这里。")
+            Text(summarySubtitle)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(Color(red: 0.47, green: 0.55, blue: 0.68))
 
             ProgressView(
-                value: Double(viewModel.summary.completedCount),
-                total: Double(max(viewModel.summary.dueCount + viewModel.summary.completedCount, 1))
+                value: Double(min(viewModel.summary.completedCount, viewModel.summary.dailyTarget)),
+                total: Double(max(viewModel.summary.dailyTarget, 1))
             )
             .tint(Color(red: 0.0, green: 0.4, blue: 1.0))
 
@@ -165,7 +195,7 @@ struct ReviewTasksView: View {
                     ArticleAudioManager.shared.stop()
                     viewModel.startSession()
                 } label: {
-                    Text("开始复习")
+                    Text(viewModel.primarySessionButtonTitle)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -183,6 +213,16 @@ struct ReviewTasksView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color(red: 0.92, green: 0.95, blue: 0.98), lineWidth: 1)
         )
+    }
+
+    private var summarySubtitle: String {
+        if viewModel.summary.backlogCount > 0 {
+            return "优先复习逾期与还不熟的词。今日建议 \(viewModel.summary.dailyTarget) 个，还有 \(viewModel.summary.backlogCount) 个积压可继续。"
+        }
+        if viewModel.summary.dueCount > 0 {
+            return "优先复习逾期与还不熟的词。今日建议 \(viewModel.summary.dailyTarget) 个。"
+        }
+        return "复习你查过的生词，巩固阅读中的薄弱点。"
     }
 
     @ViewBuilder
@@ -642,7 +682,7 @@ struct WordReviewSessionView: View {
     private var finishedContent: some View {
         VStack(spacing: 18) {
             Spacer()
-            Text("今日复习完成")
+            Text(viewModel.canContinueBacklog ? "本轮完成" : "今日复习完成")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
             Text("\(viewModel.sessionQueue.count) 个生词已复习")
@@ -651,16 +691,39 @@ struct WordReviewSessionView: View {
             Text("认识了 \(viewModel.masteredInSession) 个 · 还不熟 \(viewModel.againInSession) 个")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
-            Button("返回任务") {
-                cancelAutoPlay()
-                viewModel.closeSession()
+            if viewModel.canContinueBacklog {
+                Text("还有 \(viewModel.pendingTasks.count) 个积压")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color(red: 0.47, green: 0.55, blue: 0.68))
+                Button("继续清积压（\(viewModel.nextSessionBatchSize)）") {
+                    cancelAutoPlay()
+                    viewModel.continueBacklogSession()
+                    scheduleAutoPlay()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 12)
+                .background(Color(red: 0.0, green: 0.4, blue: 1.0))
+                .clipShape(Capsule())
+                Button("返回任务") {
+                    cancelAutoPlay()
+                    viewModel.closeSession()
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color(red: 0.4, green: 0.48, blue: 0.62))
+            } else {
+                Button("返回任务") {
+                    cancelAutoPlay()
+                    viewModel.closeSession()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 12)
+                .background(Color(red: 0.0, green: 0.4, blue: 1.0))
+                .clipShape(Capsule())
             }
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 12)
-            .background(Color(red: 0.0, green: 0.4, blue: 1.0))
-            .clipShape(Capsule())
             Spacer()
         }
         .padding(.horizontal, 24)

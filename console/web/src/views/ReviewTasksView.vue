@@ -5,7 +5,8 @@
         <div>
           <h2>复习任务</h2>
           <p class="muted">
-            今日待复习 {{ summary.due_count }} 个，已完成 {{ summary.completed_count }} 个
+            今日目标 {{ summary.daily_target }}，已完成 {{ summary.completed_count }}，
+            待复习 {{ summary.due_count }}（推荐 {{ summary.recommended_count }}，积压 {{ summary.backlog_count }}）
           </p>
         </div>
         <div class="actions">
@@ -31,8 +32,12 @@
           <strong>{{ summary.completed_count }}</strong>
         </div>
         <div class="stat-card">
-          <span class="stat-card__label">每日上限</span>
-          <strong>{{ summary.daily_limit > 0 ? summary.daily_limit : '不限' }}</strong>
+          <span class="stat-card__label">今日目标</span>
+          <strong>{{ summary.daily_target }}</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">积压</span>
+          <strong>{{ summary.backlog_count }}</strong>
         </div>
         <div class="stat-card">
           <span class="stat-card__label">连续学习</span>
@@ -183,6 +188,9 @@ const summary = ref<WordReviewSummary>({
   due_count: 0,
   completed_count: 0,
   daily_limit: 0,
+  daily_target: 25,
+  recommended_count: 0,
+  backlog_count: 0,
   streak_days: 0,
 });
 const pendingItems = ref<WordReviewTaskItem[]>([]);

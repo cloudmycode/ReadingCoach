@@ -39,10 +39,13 @@ func (h *ReviewHandler) GetToday(c *gin.Context) {
 	}
 
 	jsonOK(c, "获取成功", gin.H{
-		"due_count":       summary.DueCount,
-		"completed_count": summary.CompletedCount,
-		"daily_limit":     summary.DailyLimit,
-		"streak_days":     summary.StreakDays,
+		"due_count":          summary.DueCount,
+		"completed_count":    summary.CompletedCount,
+		"daily_limit":        summary.DailyLimit,
+		"daily_target":       summary.DailyTarget,
+		"recommended_count":  summary.RecommendedCount,
+		"backlog_count":      summary.BacklogCount,
+		"streak_days":        summary.StreakDays,
 	})
 }
 
