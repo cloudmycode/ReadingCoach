@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-const DailyWordReviewLimit = 20
-
 // completedWordReviewHistoryDays 已完成任务回溯天数。
 const completedWordReviewHistoryDays = 90
 
@@ -38,7 +36,7 @@ type WordReviewTask struct {
 type WordReviewTodaySummary struct {
 	DueCount       int `json:"due_count"`
 	CompletedCount int `json:"completed_count"`
-	DailyLimit     int `json:"daily_limit"`
+	DailyLimit     int `json:"daily_limit"` // 0 表示不限制每日数量
 	StreakDays     int `json:"streak_days"`
 }
 
@@ -66,7 +64,7 @@ func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID i
 		return nil, err
 	}
 
-	var dueRaw int
+	var dueCount int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM user_word_book
@@ -75,7 +73,7 @@ func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID i
 		  AND next_review_at IS NOT NULL
 		  AND next_review_at <= CURDATE()
 		  AND (last_reviewed_at IS NULL OR DATE(last_reviewed_at) < CURDATE())
-	`, userID).Scan(&dueRaw); err != nil {
+	`, userID).Scan(&dueCount); err != nil {
 		return nil, fmt.Errorf("count due word reviews: %w", err)
 	}
 
@@ -90,15 +88,6 @@ func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID i
 		return nil, fmt.Errorf("count completed word reviews: %w", err)
 	}
 
-	remainingSlots := DailyWordReviewLimit - completedCount
-	if remainingSlots < 0 {
-		remainingSlots = 0
-	}
-	dueCount := dueRaw
-	if dueCount > remainingSlots {
-		dueCount = remainingSlots
-	}
-
 	stats, err := s.GetUserStudyStats(ctx, userID, 7)
 	if err != nil {
 		return nil, err
@@ -107,7 +96,7 @@ func (s *ArticleService) GetWordReviewTodaySummary(ctx context.Context, userID i
 	return &WordReviewTodaySummary{
 		DueCount:       dueCount,
 		CompletedCount: completedCount,
-		DailyLimit:     DailyWordReviewLimit,
+		DailyLimit:     0,
 		StreakDays:     stats.CurrentStreakDays,
 	}, nil
 }
@@ -133,21 +122,6 @@ func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, st
 		return s.listCompletedWordReviewTasks(ctx, userID)
 	}
 
-	var completedToday int
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM user_word_book
-		WHERE user_id = ?
-		  AND last_reviewed_at IS NOT NULL
-		  AND DATE(last_reviewed_at) = CURDATE()
-	`, userID).Scan(&completedToday); err != nil {
-		return nil, fmt.Errorf("count completed word reviews for limit: %w", err)
-	}
-	limit := DailyWordReviewLimit - completedToday
-	if limit <= 0 {
-		return []WordReviewTask{}, nil
-	}
-
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			0, w.entry_id, w.word, w.normalized_word, w.part_of_speech, w.meaning, w.tip,
@@ -162,8 +136,7 @@ func (s *ArticleService) ListWordReviewTasks(ctx context.Context, userID int, st
 		  AND w.next_review_at <= CURDATE()
 		  AND (w.last_reviewed_at IS NULL OR DATE(w.last_reviewed_at) < CURDATE())
 		ORDER BY w.next_review_at ASC, w.entry_id ASC
-		LIMIT ?
-	`, userID, limit)
+	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query word review tasks: %w", err)
 	}

@@ -222,11 +222,11 @@
 
 ## 4.5 生词复习任务
 
-任务单位是 `user_word_book` 条目，每日上限 20 个词。
+任务单位是 `user_word_book` 条目，不限制每日复习数量（`daily_limit` 为 `0` 表示不限）。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_limit` / `streak_days` |
+| GET | `/api/review/today` | 今日概览：`due_count` / `completed_count` / `daily_limit`（`0`=不限） / `streak_days` |
 | GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 已复习历史（近 90 天，含 `result` / `log_id`） |
 | POST | `/api/review/tasks/:entry_id/result` | 提交结果：`{"result":"mastered"\|"again"}` |
 

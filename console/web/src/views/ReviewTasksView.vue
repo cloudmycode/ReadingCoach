@@ -32,7 +32,7 @@
         </div>
         <div class="stat-card">
           <span class="stat-card__label">每日上限</span>
-          <strong>{{ summary.daily_limit }}</strong>
+          <strong>{{ summary.daily_limit > 0 ? summary.daily_limit : '不限' }}</strong>
         </div>
         <div class="stat-card">
           <span class="stat-card__label">连续学习</span>
@@ -182,7 +182,7 @@ const errorMessage = ref("");
 const summary = ref<WordReviewSummary>({
   due_count: 0,
   completed_count: 0,
-  daily_limit: 20,
+  daily_limit: 0,
   streak_days: 0,
 });
 const pendingItems = ref<WordReviewTaskItem[]>([]);

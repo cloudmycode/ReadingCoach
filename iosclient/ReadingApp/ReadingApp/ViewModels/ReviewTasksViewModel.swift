@@ -6,7 +6,7 @@ final class ReviewTasksViewModel: ObservableObject {
     @Published var summary: WordReviewTodaySummary = WordReviewTodaySummary(
         dueCount: 0,
         completedCount: 0,
-        dailyLimit: 20,
+        dailyLimit: 0,
         streakDays: 0
     )
     @Published var pendingTasks: [WordReviewTaskItem] = []
@@ -85,7 +85,7 @@ final class ReviewTasksViewModel: ObservableObject {
         summary = WordReviewTodaySummary(
             dueCount: 0,
             completedCount: 0,
-            dailyLimit: 20,
+            dailyLimit: 0,
             streakDays: 0
         )
         pendingTasks = []

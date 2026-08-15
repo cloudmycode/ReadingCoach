@@ -148,7 +148,7 @@ struct ReviewTasksView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
 
-            Text("复习你查过的生词，巩固阅读中的薄弱点。每天最多 \(viewModel.summary.dailyLimit) 个。")
+            Text("复习你查过的生词，巩固阅读中的薄弱点。到期的都会出现在这里。")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(Color(red: 0.47, green: 0.55, blue: 0.68))
 
