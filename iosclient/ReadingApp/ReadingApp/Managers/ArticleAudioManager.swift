@@ -54,6 +54,15 @@ final class ArticleAudioManager: NSObject {
     private var playbackContinuation: CheckedContinuation<Void, Error>?
     private var activeWebSocketTask: URLSessionWebSocketTask?
     private var warmingCacheKeys: Set<String> = []
+    private var playbackAttempt = 0
+    private var activePlaybackAttempt: Int?
+    private var isAudioSessionConfigured = false
+
+    private func playbackLog(_ message: String) {
+#if DEBUG
+        print("[ArticlePlayback][Audio] \(message)")
+#endif
+    }
 
     private var cacheDirectoryURL: URL? {
         guard let userId = UserScopedStorage.currentUserId else { return nil }
@@ -61,17 +70,41 @@ final class ArticleAudioManager: NSObject {
     }
 
     func speak(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) async throws {
+        playbackAttempt += 1
+        let attempt = playbackAttempt
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        playbackLog("speak requested attempt=\(attempt) sentenceId=\(sentenceId.map(String.init) ?? "nil") style=\(String(describing: style)) taskCancelled=\(Task.isCancelled)")
         guard !trimmed.isEmpty else {
+            playbackLog("speak rejected attempt=\(attempt) reason=emptyText")
             throw ArticleAudioError.emptyText
         }
 
-        stop()
+        // A naturally completed sentence has already released its player and
+        // continuation. Keep the audio session active in that case so cached
+        // sentences can transition without rapidly deactivating/reactivating the
+        // session, which can interrupt the next AVAudioPlayer immediately.
+        if audioPlayer != nil || playbackContinuation != nil || activeWebSocketTask != nil {
+            playbackLog("speak replacing active playback attempt=\(attempt)")
+            stop(reason: "speak-replacing-active-playback")
+        }
 
         let cacheURL = try await ensureAudioCached(sentenceId: sentenceId, text: trimmed, type: type, style: style)
 
-        try configureAudioSession()
-        try await playAudioFile(at: cacheURL)
+        if !isAudioSessionConfigured {
+            try configureAudioSession()
+            isAudioSessionConfigured = true
+            playbackLog("audio session activated attempt=\(attempt)")
+        } else {
+            playbackLog("audio session reused attempt=\(attempt)")
+        }
+        activePlaybackAttempt = attempt
+        do {
+            try await playAudioFile(at: cacheURL, attempt: attempt)
+            playbackLog("speak completed attempt=\(attempt) sentenceId=\(sentenceId.map(String.init) ?? "nil")")
+        } catch {
+            playbackLog("speak failed attempt=\(attempt) error=\(String(describing: error)) taskCancelled=\(Task.isCancelled)")
+            throw error
+        }
     }
 
     func preload(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) async {
@@ -97,14 +130,26 @@ final class ArticleAudioManager: NSObject {
         }
     }
 
-    func stop() {
+    func stop(reason: String = "external") {
+        playbackLog(
+            "stop reason=\(reason) activeAttempt=\(activePlaybackAttempt.map(String.init) ?? "nil") " +
+            "hasPlayer=\(audioPlayer != nil) isPlaying=\(audioPlayer?.isPlaying ?? false) " +
+            "hasContinuation=\(playbackContinuation != nil) hasWebSocket=\(activeWebSocketTask != nil)"
+        )
         activeWebSocketTask?.cancel(with: .goingAway, reason: nil)
         activeWebSocketTask = nil
 
-        if let player = audioPlayer, player.isPlaying {
-            player.stop()
+        if let player = audioPlayer {
+            // AVAudioPlayer may deliver a delayed delegate callback after stop().
+            // Detach it before replacing the shared player/continuation so an old
+            // sentence cannot complete the continuation of the next sentence.
+            player.delegate = nil
+            if player.isPlaying {
+                player.stop()
+            }
         }
         audioPlayer = nil
+        activePlaybackAttempt = nil
 
         if let playbackContinuation {
             playbackContinuation.resume(throwing: CancellationError())
@@ -112,6 +157,7 @@ final class ArticleAudioManager: NSObject {
         }
 
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        isAudioSessionConfigured = false
     }
 
     private func cacheFileURL(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> URL? {
@@ -138,8 +184,11 @@ final class ArticleAudioManager: NSObject {
             throw ArticleAudioError.synthesisFailed
         }
         if fileManager.fileExists(atPath: cacheURL.path) {
+            playbackLog("cache hit sentenceId=\(sentenceId.map(String.init) ?? "nil") file=\(cacheURL.lastPathComponent)")
             return cacheURL
         }
+
+        playbackLog("cache miss sentenceId=\(sentenceId.map(String.init) ?? "nil") file=\(cacheURL.lastPathComponent)")
 
         let audioData = try await synthesizeAudio(
             text: text,
@@ -245,18 +294,30 @@ final class ArticleAudioManager: NSObject {
         }
     }
 
-    private func playAudioFile(at fileURL: URL) async throws {
+    private func playAudioFile(at fileURL: URL, attempt: Int) async throws {
         try await withCheckedThrowingContinuation { continuation in
             do {
                 let player = try AVAudioPlayer(contentsOf: fileURL)
                 player.delegate = self
                 player.prepareToPlay()
-                guard player.play() else {
-                    throw ArticleAudioError.playbackInterrupted
-                }
+                playbackLog("player prepared attempt=\(attempt) duration=\(player.duration) file=\(fileURL.lastPathComponent)")
+                // Install all shared state before play(). Cached files can begin
+                // and finish very quickly, so delegate callbacks must always see
+                // the player and continuation that belong to this attempt.
                 audioPlayer = player
                 playbackContinuation = continuation
+                guard player.play() else {
+                    player.delegate = nil
+                    audioPlayer = nil
+                    playbackContinuation = nil
+                    activePlaybackAttempt = nil
+                    playbackLog("player refused start attempt=\(attempt)")
+                    continuation.resume(throwing: ArticleAudioError.playbackInterrupted)
+                    return
+                }
+                playbackLog("player started attempt=\(attempt) isPlaying=\(player.isPlaying)")
             } catch {
+                activePlaybackAttempt = nil
                 continuation.resume(throwing: error)
             }
         }
@@ -362,9 +423,22 @@ final class ArticleAudioManager: NSObject {
 
 extension ArticleAudioManager: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        guard let playbackContinuation else { return }
+        // Cached files make sentence transitions effectively immediate. A finish
+        // callback from the previous player can therefore arrive after the next
+        // player has already been installed; ignore callbacks from stale players.
+        guard audioPlayer === player else {
+            playbackLog("ignored stale finish callback success=\(flag)")
+            return
+        }
+        guard let playbackContinuation else {
+            playbackLog("finish callback missing continuation activeAttempt=\(activePlaybackAttempt.map(String.init) ?? "nil")")
+            return
+        }
+        playbackLog("player finished attempt=\(activePlaybackAttempt.map(String.init) ?? "nil") success=\(flag) currentTime=\(player.currentTime) duration=\(player.duration)")
         self.playbackContinuation = nil
+        player.delegate = nil
         audioPlayer = nil
+        activePlaybackAttempt = nil
 
         if flag {
             playbackContinuation.resume()
@@ -374,9 +448,19 @@ extension ArticleAudioManager: AVAudioPlayerDelegate {
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        guard let playbackContinuation else { return }
+        guard audioPlayer === player else {
+            playbackLog("ignored stale decode error error=\(String(describing: error))")
+            return
+        }
+        guard let playbackContinuation else {
+            playbackLog("decode error missing continuation error=\(String(describing: error))")
+            return
+        }
+        playbackLog("player decode error attempt=\(activePlaybackAttempt.map(String.init) ?? "nil") error=\(String(describing: error))")
         self.playbackContinuation = nil
+        player.delegate = nil
         audioPlayer = nil
+        activePlaybackAttempt = nil
         playbackContinuation.resume(throwing: error ?? ArticleAudioError.playbackInterrupted)
     }
 }

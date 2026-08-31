@@ -33,7 +33,6 @@ struct ArticleDetailView: View {
     @State private var articleScrollOffset: CGFloat = 0
     @State private var articleContentHeight: CGFloat = 1
     @State private var articleViewportHeight: CGFloat = 1
-    @State private var sentenceFrames: [Int: CGRect] = [:]
     @State private var panelHeight: CGFloat = 430
     @GestureState private var panelDragOffset: CGFloat = 0
 
@@ -267,8 +266,12 @@ struct ArticleDetailView: View {
                             ForEach(paragraphGroups.indices, id: \.self) { paragraphIndex in
                                 VStack(alignment: .leading, spacing: 28) {
                                     ForEach(paragraphGroups[paragraphIndex], id: \.self) { sentenceIndex in
-                                        sentenceLine(for: sentenceIndex)
-                                            .id(sentenceIndex)
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Color.clear
+                                                .frame(height: 12)
+                                                .id(sentenceScrollTargetID(sentenceIndex))
+                                            sentenceLine(for: sentenceIndex)
+                                        }
                                     }
                                 }
                             }
@@ -309,15 +312,10 @@ struct ArticleDetailView: View {
                 .onPreferenceChange(ArticleContentHeightKey.self) { value in
                     articleContentHeight = max(1, value)
                 }
-                .onPreferenceChange(SentenceFramePreferenceKey.self) { value in
-                    sentenceFrames = value
-                }
                 .onChange(of: pendingScrollSentenceIndex) { _, newValue in
                     guard let newValue else { return }
-                    if shouldScrollSentenceIntoView(newValue) {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(newValue, anchor: sentenceScrollAnchor(for: newValue))
-                        }
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(sentenceScrollTargetID(newValue), anchor: .top)
                     }
                     pendingScrollSentenceIndex = nil
                 }
@@ -345,16 +343,12 @@ struct ArticleDetailView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(isSelected ? Color(red: 0.91, green: 0.96, blue: 1.0) : Color.clear)
                 )
-                .background(
-                    GeometryReader { geometry in
-                        Color.clear.preference(
-                            key: SentenceFramePreferenceKey.self,
-                            value: [index: geometry.frame(in: .named("ArticleScrollView"))]
-                        )
-                    }
-                )
         }
         .buttonStyle(.plain)
+    }
+
+    private func sentenceScrollTargetID(_ index: Int) -> String {
+        "article-sentence-scroll-target-\(index)"
     }
 
     private var paragraphGroups: [[Int]] {
@@ -372,38 +366,6 @@ struct ArticleDetailView: View {
     private var activeSentence: ArticleSentence? {
         guard let activeSentenceIndex, viewModel.sentences.indices.contains(activeSentenceIndex) else { return nil }
         return viewModel.sentences[activeSentenceIndex]
-    }
-
-    private func sentenceScrollAnchor(for index: Int) -> UnitPoint {
-        guard let frame = sentenceFrames[index] else {
-            return isPanelVisible ? .top : .center
-        }
-
-        if frame.minY < visibleSentenceTopInset {
-            return .top
-        }
-        return isPanelVisible ? .top : .center
-    }
-
-    private var visibleSentenceTopInset: CGFloat {
-        18
-    }
-
-    private var visibleSentenceBottomInset: CGFloat {
-        isPanelVisible ? currentPanelHeight + 16 : 20
-    }
-
-    private func shouldScrollSentenceIntoView(_ index: Int) -> Bool {
-        guard let frame = sentenceFrames[index] else { return true }
-
-        let visibleTop = visibleSentenceTopInset
-        let visibleBottom = max(articleViewportHeight - visibleSentenceBottomInset, visibleTop + 40)
-
-        if frame.minY >= visibleTop && frame.maxY <= visibleBottom {
-            return false
-        }
-
-        return true
     }
 
     private var articleScrollIndicator: some View {
@@ -1094,14 +1056,6 @@ private struct ArticleContentHeightKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-private struct SentenceFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [Int: CGRect] = [:]
-
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

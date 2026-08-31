@@ -36,6 +36,7 @@ final class SpeechInputManager: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var hasInstalledAudioTap = false
+    private var ownsAudioSession = false
 
     func startRecording() async throws {
         guard !isStarting else { return }
@@ -50,6 +51,7 @@ final class SpeechInputManager: ObservableObject {
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
         try audioSession.setActive(true, options: [.notifyOthersOnDeactivation])
+        ownsAudioSession = true
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -170,6 +172,11 @@ final class SpeechInputManager: ObservableObject {
     }
 
     private func cleanUpAudioSession() {
+        // AVAudioSession is process-wide. Sentence changes also call
+        // cancelRecording() to reset the panel, so only deactivate the session
+        // when this manager actually activated it for microphone capture.
+        guard ownsAudioSession else { return }
+        ownsAudioSession = false
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 }
