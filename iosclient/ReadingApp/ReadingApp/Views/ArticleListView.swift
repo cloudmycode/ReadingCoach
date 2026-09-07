@@ -9,6 +9,7 @@ import SwiftUI
 
 enum ArticleRoute: Hashable {
     case article(ArticleItem, focusSentenceId: Int?)
+    case autoPlayArticle(ArticleItem)
     case cameraResult(String)
 }
 
@@ -226,7 +227,9 @@ struct ArticleListView: View {
             ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
                 HStack(spacing: 0) {
                     Button {
-                        appNavigationPath?.wrappedValue.append(AppNavigationRoute.articleRoute(.article(article, focusSentenceId: nil)))
+                        appNavigationPath?.wrappedValue.append(
+                            AppNavigationRoute.articleRoute(.article(article, focusSentenceId: nil))
+                        )
                     } label: {
                         ArticleLibraryRow(
                             article: article,

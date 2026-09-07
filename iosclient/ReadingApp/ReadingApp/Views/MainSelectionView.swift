@@ -51,11 +51,33 @@ struct MainSelectionView: View {
                                         ArticleDetailView(
                                             articleId: article.id,
                                             articleTitle: article.title,
-                                            focusSentenceId: focusSentenceId
+                                            focusSentenceId: focusSentenceId,
+                                            onContinuousReadingFinished: {
+                                                openNextArticle(after: article.id)
+                                            }
                                         )
+                                            .id("article-\(article.id)-\(focusSentenceId.map(String.init) ?? "none")")
+                                            .environment(\.appNavigationPath, $navigationPath)
+                                    case .autoPlayArticle(let article):
+                                        ArticleDetailView(
+                                            articleId: article.id,
+                                            articleTitle: article.title,
+                                            startsContinuousReading: true,
+                                            onContinuousReadingFinished: {
+                                                openNextArticle(after: article.id)
+                                            }
+                                        )
+                                            .id("auto-play-article-\(article.id)")
                                             .environment(\.appNavigationPath, $navigationPath)
                                     case .cameraResult(let articleId):
-                                        ArticleDetailView(articleId: articleId, articleTitle: "图片解析文章")
+                                        ArticleDetailView(
+                                            articleId: articleId,
+                                            articleTitle: "图片解析文章",
+                                            onContinuousReadingFinished: {
+                                                openNextArticle(after: articleId)
+                                            }
+                                        )
+                                            .id("camera-article-\(articleId)")
                                             .environment(\.appNavigationPath, $navigationPath)
                                     }
                                 case .stats:
@@ -67,6 +89,17 @@ struct MainSelectionView: View {
                 }
             }
         }
+    }
+
+    private func openNextArticle(after articleId: String) {
+        guard let nextArticle = ArticleCacheStore.shared.cachedArticles().nextArticle(after: articleId) else { return }
+
+        if !navigationPath.isEmpty {
+            navigationPath.removeLast()
+        }
+        navigationPath.append(
+            AppNavigationRoute.articleRoute(.autoPlayArticle(nextArticle))
+        )
     }
 }
 

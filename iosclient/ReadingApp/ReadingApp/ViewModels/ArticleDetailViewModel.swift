@@ -34,6 +34,7 @@ final class ArticleDetailViewModel: ObservableObject {
     private var continuousPlaybackStartIndex = 0
     private var continuousPlaybackRun = 0
     private var durationTracker: StudyDurationTracker?
+    private let onContinuousPlaybackFinished: (() -> Void)?
 
     private func playbackLog(_ message: String) {
 #if DEBUG
@@ -55,8 +56,13 @@ final class ArticleDetailViewModel: ObservableObject {
         return parts.joined(separator: " · ")
     }
 
-    init(articleId: String, initialTitle: String) {
+    init(
+        articleId: String,
+        initialTitle: String,
+        onContinuousPlaybackFinished: (() -> Void)? = nil
+    ) {
         self.articleId = articleId
+        self.onContinuousPlaybackFinished = onContinuousPlaybackFinished
         if let cachedDetail = ArticleCacheStore.shared.cachedArticleDetail(articleId: articleId) {
             self.title = cachedDetail.title.isEmpty ? initialTitle : cachedDetail.title
             self.sentences = cachedDetail.sentences
@@ -247,6 +253,7 @@ final class ArticleDetailViewModel: ObservableObject {
         } else if continuousPlaybackStartIndex >= sentences.count {
             continuousPlaybackStartIndex = 0
         }
+        let shouldPlayArticleStartCue = currentSentenceIndex == nil
         playbackMode = .continuous
         stopVoiceReading(resetPosition: false)
         isPlaying = true
@@ -255,6 +262,10 @@ final class ArticleDetailViewModel: ObservableObject {
         let startIndex = continuousPlaybackStartIndex
         playbackLog("run started run=\(run) startIndex=\(startIndex) sentenceCount=\(sentences.count)")
         audioTask = Task { [weak self] in
+            if shouldPlayArticleStartCue {
+                await ArticleAudioManager.shared.playArticleStartCue()
+                guard !Task.isCancelled else { return }
+            }
             await self?.playSequence(startingAt: startIndex, run: run)
         }
     }
@@ -284,13 +295,31 @@ final class ArticleDetailViewModel: ObservableObject {
             } catch {
                 playbackLog("sentence failed run=\(run) index=\(index) error=\(String(describing: error))")
                 toastMessage = error.localizedDescription
-                break
+                return
             }
         }
 
         playbackLog("run finished run=\(run) taskCancelled=\(Task.isCancelled)")
-        stopContinuousPlayback(resetProgress: true)
-        stopVoiceReading(resetPosition: true)
+        finishCompletedSequence()
+        playbackLog("waiting before next article run=\(run) seconds=2")
+        do {
+            try await Task.sleep(for: .seconds(2))
+        } catch {
+            playbackLog("next article cancelled during wait run=\(run)")
+            return
+        }
+        guard !Task.isCancelled, run == continuousPlaybackRun else { return }
+        playbackLog("request next article run=\(run)")
+        onContinuousPlaybackFinished?()
+    }
+
+    private func finishCompletedSequence() {
+        ArticleAudioManager.shared.stop(reason: "detail-sequence-completed")
+        currentSentenceIndex = nil
+        currentPlayingType = nil
+        continuousPlaybackStartIndex = 0
+        isPlaying = false
+        playbackMode = nil
     }
     
     private func playText(

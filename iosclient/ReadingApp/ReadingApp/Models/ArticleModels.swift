@@ -120,6 +120,15 @@ struct ArticleItem: Codable, Identifiable, Hashable {
     }
 }
 
+extension Array where Element == ArticleItem {
+    func nextArticle(after articleId: String) -> ArticleItem? {
+        let ordered = sorted { $0.createdAt > $1.createdAt }
+        guard let currentIndex = ordered.firstIndex(where: { $0.id == articleId }) else { return nil }
+        let nextIndex = ordered.index(after: currentIndex)
+        return ordered.indices.contains(nextIndex) ? ordered[nextIndex] : nil
+    }
+}
+
 struct ArticleDetailResponse: Codable {
     let articleId: Int
     let title: String

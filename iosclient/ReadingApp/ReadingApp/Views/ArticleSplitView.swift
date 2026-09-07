@@ -12,6 +12,7 @@ struct ArticleSplitView: View {
     @StateObject private var wordBookViewModel = WordBookViewModel()
     @State private var selectedArticleId: String?
     @State private var focusSentenceId: Int?
+    @State private var autoPlayArticleId: String?
     @State private var isSidebarCollapsed = false
     @State private var isDraftPresented = false
     @State private var isStatsPresented = false
@@ -67,6 +68,7 @@ struct ArticleSplitView: View {
         .fullScreenCover(isPresented: $isDraftPresented) {
             ArticleTextDraftView(
                 onSubmitted: { articleId in
+                    autoPlayArticleId = nil
                     selectedArticleId = articleId
                     Task {
                         await viewModel.loadArticles()
@@ -185,6 +187,7 @@ struct ArticleSplitView: View {
                     ReviewTasksView(
                         viewModel: reviewTasksViewModel,
                         onOpenArticle: { articleId, _, sentenceId in
+                            autoPlayArticleId = nil
                             selectedArticleId = articleId
                             focusSentenceId = sentenceId
                             selectedSidebarTab = .list
@@ -222,6 +225,7 @@ struct ArticleSplitView: View {
                         articleTitle: selectedArticle.title,
                         showsOpenArticleButton: false,
                         onOpenArticle: { articleId in
+                            autoPlayArticleId = nil
                             selectedArticleId = articleId
                             focusSentenceId = nil
                             selectedSidebarTab = .list
@@ -247,7 +251,9 @@ struct ArticleSplitView: View {
                     articleId: selectedArticle.id,
                     articleTitle: selectedArticle.title,
                     showsBackButton: false,
-                    focusSentenceId: focusSentenceId
+                    focusSentenceId: focusSentenceId,
+                    startsContinuousReading: autoPlayArticleId == selectedArticle.id,
+                    onContinuousReadingFinished: openNextArticle
                 )
                 .id("\(selectedArticle.id)-\(selectedArticle.title)-\(focusSentenceId.map(String.init) ?? "none")")
 
@@ -314,6 +320,7 @@ struct ArticleSplitView: View {
                         ForEach(Array(group.articles.enumerated()), id: \.element.id) { index, article in
                             HStack(spacing: 0) {
                                 Button {
+                                    autoPlayArticleId = nil
                                     selectedArticleId = article.id
                                     focusSentenceId = nil
                                     if selectedSidebarTab == .wordBook {
@@ -431,6 +438,15 @@ struct ArticleSplitView: View {
         if selectedArticleId == nil || !viewModel.articles.contains(where: { $0.id == selectedArticleId }) {
             selectedArticleId = viewModel.articles.first?.id
         }
+    }
+
+    private func openNextArticle() {
+        guard let currentArticleId = selectedArticle?.id,
+              let nextArticle = viewModel.articles.nextArticle(after: currentArticleId) else { return }
+
+        focusSentenceId = nil
+        autoPlayArticleId = nextArticle.id
+        selectedArticleId = nextArticle.id
     }
 
     private func stripeColor(for index: Int) -> Color {

@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import UIKit
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -25,9 +26,11 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            updateScreenAwake(for: scenePhase)
             checkLoginStatus()
         }
         .onChange(of: scenePhase) { _, phase in
+            updateScreenAwake(for: phase)
             guard phase == .active, isLoggedIn else { return }
             Task {
                 await AppIconBadgeManager.refreshFromServer()
@@ -70,6 +73,10 @@ struct ContentView: View {
                 await AppIconBadgeManager.refreshFromServer()
             }
         }
+    }
+
+    private func updateScreenAwake(for phase: ScenePhase) {
+        UIApplication.shared.isIdleTimerDisabled = phase == .active
     }
 
     private func checkLoginStatus() {

@@ -130,6 +130,32 @@ final class ArticleAudioManager: NSObject {
         }
     }
 
+    func playArticleStartCue() async {
+        playbackAttempt += 1
+        let attempt = playbackAttempt
+
+        if audioPlayer != nil || playbackContinuation != nil || activeWebSocketTask != nil {
+            stop(reason: "article-start-cue-replacing-active-playback")
+        }
+
+        do {
+            let cueURL = try articleStartCueURL()
+            if !isAudioSessionConfigured {
+                try configureAudioSession()
+                isAudioSessionConfigured = true
+            }
+            activePlaybackAttempt = attempt
+            playbackLog("article start cue started attempt=\(attempt)")
+            try await playAudioFile(at: cueURL, attempt: attempt)
+            playbackLog("article start cue completed attempt=\(attempt)")
+        } catch is CancellationError {
+            playbackLog("article start cue cancelled attempt=\(attempt)")
+        } catch {
+            // A cue failure must never prevent the next article from starting.
+            playbackLog("article start cue failed attempt=\(attempt) error=\(String(describing: error))")
+        }
+    }
+
     func stop(reason: String = "external") {
         playbackLog(
             "stop reason=\(reason) activeAttempt=\(activePlaybackAttempt.map(String.init) ?? "nil") " +
@@ -166,6 +192,65 @@ final class ArticleAudioManager: NSObject {
         let digest = sha256Hex("\(text)|\(type.rawValue)|\(voiceName(for: type))|\(rateValue(for: type, style: style))")
         let fileName = "sentence_\(idComponent)_\(type.rawValue)_\(digest).mp3"
         return cacheDirectoryURL.appendingPathComponent(fileName)
+    }
+
+    private func articleStartCueURL() throws -> URL {
+        guard let cacheDirectoryURL else {
+            throw ArticleAudioError.playbackInterrupted
+        }
+        let url = cacheDirectoryURL.appendingPathComponent("article_start_cue.wav")
+        if !fileManager.fileExists(atPath: url.path) {
+            try makeArticleStartCueWAV().write(to: url, options: .atomic)
+        }
+        return url
+    }
+
+    private func makeArticleStartCueWAV() -> Data {
+        let sampleRate = 22_050
+        let duration = 0.42
+        let sampleCount = Int(Double(sampleRate) * duration)
+        var pcm = Data(capacity: sampleCount * MemoryLayout<Int16>.size)
+
+        for index in 0..<sampleCount {
+            let time = Double(index) / Double(sampleRate)
+            let frequency = time < 0.19 ? 659.25 : 880.0
+            let localTime = time < 0.19 ? time : time - 0.19
+            let toneDuration = time < 0.19 ? 0.19 : duration - 0.19
+            let fadeIn = min(localTime / 0.018, 1)
+            let fadeOut = min((toneDuration - localTime) / 0.055, 1)
+            let envelope = max(0, min(fadeIn, fadeOut))
+            let value = Int16(sin(2 * Double.pi * frequency * time) * envelope * 8_500)
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { pcm.append(contentsOf: $0) }
+        }
+
+        var wav = Data()
+        func appendASCII(_ value: String) {
+            wav.append(contentsOf: value.utf8)
+        }
+        func appendUInt16(_ value: UInt16) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { wav.append(contentsOf: $0) }
+        }
+        func appendUInt32(_ value: UInt32) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { wav.append(contentsOf: $0) }
+        }
+
+        appendASCII("RIFF")
+        appendUInt32(UInt32(36 + pcm.count))
+        appendASCII("WAVEfmt ")
+        appendUInt32(16)
+        appendUInt16(1)
+        appendUInt16(1)
+        appendUInt32(UInt32(sampleRate))
+        appendUInt32(UInt32(sampleRate * MemoryLayout<Int16>.size))
+        appendUInt16(UInt16(MemoryLayout<Int16>.size))
+        appendUInt16(16)
+        appendASCII("data")
+        appendUInt32(UInt32(pcm.count))
+        wav.append(pcm)
+        return wav
     }
 
     private func cacheIdentifier(sentenceId: Int?, text: String, type: SentenceAudioType, style: SpeechPlaybackStyle) -> String {

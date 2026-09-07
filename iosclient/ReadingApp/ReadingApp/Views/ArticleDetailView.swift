@@ -15,6 +15,7 @@ struct ArticleDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let showsBackButton: Bool
     private let focusSentenceId: Int?
+    private let startsContinuousReading: Bool
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
     @State private var questionDraft = ""
@@ -30,6 +31,7 @@ struct ArticleDetailView: View {
     @State private var hasActivatedChatScroll = false
     @State private var pendingScrollSentenceIndex: Int?
     @State private var didApplyFocusSentence = false
+    @State private var didStartContinuousReading = false
     @State private var articleScrollOffset: CGFloat = 0
     @State private var articleContentHeight: CGFloat = 1
     @State private var articleViewportHeight: CGFloat = 1
@@ -40,11 +42,20 @@ struct ArticleDetailView: View {
         articleId: String,
         articleTitle: String,
         showsBackButton: Bool = true,
-        focusSentenceId: Int? = nil
+        focusSentenceId: Int? = nil,
+        startsContinuousReading: Bool = false,
+        onContinuousReadingFinished: (() -> Void)? = nil
     ) {
-        _viewModel = StateObject(wrappedValue: ArticleDetailViewModel(articleId: articleId, initialTitle: articleTitle))
+        _viewModel = StateObject(
+            wrappedValue: ArticleDetailViewModel(
+                articleId: articleId,
+                initialTitle: articleTitle,
+                onContinuousPlaybackFinished: onContinuousReadingFinished
+            )
+        )
         self.showsBackButton = showsBackButton
         self.focusSentenceId = focusSentenceId
+        self.startsContinuousReading = startsContinuousReading
     }
 
     var body: some View {
@@ -96,6 +107,7 @@ struct ArticleDetailView: View {
             .task {
                 await viewModel.loadArticleIfNeeded()
                 applyFocusSentenceIfNeeded()
+                startContinuousReadingIfNeeded()
             }
             .onChange(of: viewModel.sentences.count) { _, _ in
                 applyFocusSentenceIfNeeded()
@@ -180,6 +192,18 @@ struct ArticleDetailView: View {
             try? await Task.sleep(nanoseconds: 80_000_000)
             pendingScrollSentenceIndex = index
         }
+    }
+
+    private func startContinuousReadingIfNeeded() {
+        guard startsContinuousReading,
+              !didStartContinuousReading,
+              !viewModel.sentences.isEmpty else {
+            return
+        }
+        didStartContinuousReading = true
+        selectedSentenceIndex = 0
+        pendingScrollSentenceIndex = 0
+        viewModel.toggleVoiceReading(startingAt: 0)
     }
 
     private var topBar: some View {
