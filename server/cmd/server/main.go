@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +38,10 @@ func main() {
 	}()
 
 	appServices := initServices(cfg, db)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	workersDone := make(chan struct{})
+	go func() { defer close(workersDone); appServices.readingSvc.Run(ctx, 2) }()
 
 	gin.DisableConsoleColor()
 	gin.DefaultWriter = logger.GetLogger().GetGinWriter()
@@ -60,6 +67,7 @@ func main() {
 		Review:   handlers.NewReviewHandler(appServices.articleSvc),
 		WordBook: handlers.NewWordBookHandler(appServices.articleSvc),
 		Stats:    handlers.NewStatsHandler(appServices.articleSvc),
+		Reading:  handlers.NewReadingHandler(appServices.readingSvc),
 	}
 
 	api := r.Group("/api")
@@ -69,8 +77,23 @@ func main() {
 	apiHandlers.Register(api, auth.VerifyToken)
 
 	logger.Info("✅ 服务器启动成功: http://localhost%s", cfg.HTTPAddr)
-	if err := r.Run(cfg.HTTPAddr); err != nil {
-		logger.Error("❌ 服务器启动失败: %v", err)
+	server := &http.Server{Addr: cfg.HTTPAddr, Handler: r, ReadHeaderTimeout: 10 * time.Second}
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdown); err != nil {
+			_ = server.Close()
+		}
+	}()
+	serveErr := server.ListenAndServe()
+	stop()
+	<-shutdownDone
+	<-workersDone
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		logger.Error("服务器启动失败: %v", serveErr)
 		os.Exit(1)
 	}
 }
@@ -117,6 +140,7 @@ type appServices struct {
 	articleSvc *services.ArticleService
 	aiService  *services.AIService
 	ocrService *services.OCRService
+	readingSvc *services.ReadingService
 }
 
 func initServices(cfg config.Config, db *sql.DB) *appServices {
@@ -129,18 +153,24 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 		logger.Warn("⚠️ 初始化用户生词本表失败: %v", err)
 	}
 
-	// 千问文本能力在未配置 API Key 时不可用。
-	aiService := services.NewAIService(
-		cfg.QwenAPIKey,
-		cfg.QwenAPIURL,
-		cfg.QwenModel,
-	)
-
+	// 文章与小测共用同一个千问客户端、配置及 JSON 请求逻辑。
+	aiService := services.NewAIService(cfg.QwenAPIKey, cfg.QwenAPIURL, cfg.QwenModel)
+	var readingAI services.JSONCompleter
 	if strings.TrimSpace(cfg.QwenAPIKey) == "" {
-		logger.Warn("⚠️ 千问文本未配置，拆句/翻译/单词解释不可用")
+		logger.Warn("⚠️ 千问文本未配置，拆句/翻译/单词解释不可用；小测任务保留排队")
 	} else {
-		logger.Info("✅ AI 服务初始化成功（千问文本 model=%s）", cfg.QwenModel)
+		readingAI = aiService
+		logger.Info("✅ AI 服务初始化成功（文章与小测共用千问 model=%s）", cfg.QwenModel)
 	}
+	readingSvc := services.NewReadingService(db, readingAI, cfg.QwenModel)
+	schemaCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	err := readingSvc.EnsureSchema(schemaCtx)
+	cancel()
+	if err != nil {
+		logger.Error("初始化阅读闯关数据表失败: %v", err)
+		os.Exit(1)
+	}
+	articleSvc.SetReadingService(readingSvc)
 
 	// 千问视觉 OCR 在未配置 API Key 时不可用。
 	ocrService := services.NewOCRService(
@@ -159,6 +189,7 @@ func initServices(cfg config.Config, db *sql.DB) *appServices {
 		articleSvc: articleSvc,
 		aiService:  aiService,
 		ocrService: ocrService,
+		readingSvc: readingSvc,
 	}
 }
 

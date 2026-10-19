@@ -51,10 +51,12 @@ cp config.docker.example.json config.json
 
 首次启动且数据卷为空时，会自动导入 `db/schema.sql`。已有数据后改该文件**不会**重新导入。
 
-首次或更新 `docker-compose.yml` 后，若需启动 Adminer：
+首次部署先启动数据库（空数据卷会导入基础表），等待状态变为 healthy：
 
 ```bash
-docker compose up -d
+docker compose up -d mysql
+docker compose ps mysql
+# 如需数据库管理页面，再启动：docker compose up -d adminer
 ```
 
 ### 3. 本机发版上线
@@ -73,7 +75,15 @@ REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/ReadingCoach/server \
 ./scripts/docker-ship.sh
 ```
 
-脚本：`buildx` 构建 `linux/amd64` → 打包 → `scp` → 服务器 `docker load` → `compose up -d --no-build`。
+脚本先检查服务器现有 `docker-compose.yml`、`.env`、`config.json`，然后构建 `linux/amd64` 镜像、打包传输、加载镜像，只重建 `server` 容器。不会启动或重建 MySQL / Adminer，不上传配置、不导入 SQL、不清理数据卷。数据库需要已在运行。
+
+发布后最多等待 120 秒，通过容器内 `/api/health` 检查服务和数据库连通性；失败返回非零状态，不报告发布成功。该检查不调用千问，不能代替真实出题和批改验收。可用 `IMAGE=readingcoach-server:版本号` 指定镜像标签，脚本以临时 Compose 文件应用，不修改服务器原文件。
+
+### 4. 本次小测与奖励功能的配置和建表
+
+- **千问无需新增配置**：文章与小测共用服务器现有 `config.json` 中的 `QwenAPIKey`、`QwenAPIURL`、`QwenModel`。没有 `QuizAI` 或单独的 DeepSeek Key；部署脚本不读取、生成或覆盖这些密钥。
+- **新增表由应用启动创建**：`20260920_add_reading_challenges.sql` 嵌入 Go 程序，连接现有数据库后执行 `CREATE TABLE IF NOT EXISTS`，失败则停止启动。数据库账号须有建表权限，不需单独上传或执行这份 SQL。
+- **不是通用迁移器**：不会扫描并执行 `db/migrations/` 下的所有文件，也不创建数据库或重建已有业务表；首次空库仍需 `db/schema.sql`。其他迁移和后续已有表字段变更须按各自说明执行。
 
 备选（不推荐网络差的机器）：服务器上 `docker compose up -d --build`。
 
@@ -88,7 +98,8 @@ REMOTE_DIR=/home/website/readingcoach.jingjiangke.com/ReadingCoach/server \
 | 仅 `.env` | 改完后 `docker compose up -d` |
 | `docker-compose.yml`（如新增 Adminer） | 服务器 `docker compose up -d`（拉镜像并启动新服务） |
 | Nginx | 拷到 `/etc/nginx/conf.d/` 后 `nginx -t && systemctl reload nginx` |
-| 表结构（已有库） | 先备份，再手工执行迁移 SQL；**不要**指望改 `schema.sql` 自动升级 |
+| 本次阅读小测与奖励新增表 | 应用启动自动执行嵌入的幂等建表迁移，无需脚本执行 SQL |
+| 其他表结构迁移（已有库） | 按对应迁移说明处理；不会自动扫描 migrations，改 `schema.sql` 也不会升级已有库 |
 
 验证：
 

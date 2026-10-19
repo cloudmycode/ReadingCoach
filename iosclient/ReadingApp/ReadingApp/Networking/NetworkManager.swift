@@ -102,18 +102,18 @@ final class NetworkManager {
                 // 未授权 - 令牌过期或无效
                 await handleUnauthorized()
                 let message = extractErrorMessage(from: data) ?? "令牌无效，请重新登录"
-                throw APIError.server(message: message)
+                throw APIError.http(status: httpResponse.statusCode, message: message)
             case 400..<500:
                 // 客户端错误
                 let message = extractErrorMessage(from: data) ?? "请求错误"
-                throw APIError.server(message: message)
+                throw APIError.http(status: httpResponse.statusCode, message: message)
             case 500..<600:
                 // 服务器错误
                 let message = extractErrorMessage(from: data) ?? "服务器错误"
-                throw APIError.server(message: message)
+                throw APIError.http(status: httpResponse.statusCode, message: message)
             default:
                 let message = extractErrorMessage(from: data) ?? "请求失败"
-                throw APIError.server(message: message)
+                throw APIError.http(status: httpResponse.statusCode, message: message)
             }
             
             // 解析响应数据
@@ -197,10 +197,10 @@ final class NetworkManager {
             // 未授权 - 令牌过期或无效
             await handleUnauthorized()
             let message = extractErrorMessage(from: data) ?? "令牌无效，请重新登录"
-            throw APIError.server(message: message)
+            throw APIError.http(status: httpResponse.statusCode, message: message)
         default:
             let message = extractErrorMessage(from: data) ?? "请求失败"
-            throw APIError.server(message: message)
+            throw APIError.http(status: httpResponse.statusCode, message: message)
         }
     }
     

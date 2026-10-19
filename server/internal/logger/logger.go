@@ -193,6 +193,12 @@ func GinMiddleware() gin.HandlerFunc {
 // ResponseDebugMiddleware 响应调试中间件，记录请求和响应内容
 func ResponseDebugMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Quiz bodies contain children's answers; never copy them into debug logs.
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/reading/") || strings.Contains(path, "/quiz") || strings.HasSuffix(path, "/listening-completions") {
+			c.Next()
+			return
+		}
 		// 记录请求信息
 		GetLogger().Debug("📥 请求: %s %s | IP: %s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 

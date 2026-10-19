@@ -21,7 +21,7 @@ type Config struct {
 	LogsDir        string
 	AttachmentsDir string
 
-	// 千问文本（阿里 DashScope，OpenAI 兼容）：拆句、翻译、单词解释、句子问答。
+	// 千问文本（阿里 DashScope，OpenAI 兼容）：拆句、翻译、单词解释、句子问答、小测出题与批改。
 	QwenAPIKey string
 	QwenAPIURL string
 	QwenModel  string
@@ -138,6 +138,9 @@ func (c *Config) normalizeDashScopeKeys() {
 	}
 	if strings.TrimSpace(c.QwenVLAPIKey) == "" && strings.TrimSpace(c.QwenAPIKey) != "" {
 		c.QwenVLAPIKey = c.QwenAPIKey
+	}
+	if strings.TrimSpace(c.QwenModel) == "" {
+		c.QwenModel = "qwen-plus"
 	}
 	if strings.TrimSpace(c.QwenAPIURL) == "" {
 		c.QwenAPIURL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"

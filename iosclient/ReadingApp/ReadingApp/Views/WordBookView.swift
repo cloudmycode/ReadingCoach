@@ -106,7 +106,11 @@ struct WordBookView: View {
                         topBar
                     }
 
-                    if viewModel.displayedEntries.isEmpty {
+                    if !viewModel.hasLoadedEntries {
+                        ListLoadingView(isLoading: viewModel.isLoading, errorMessage: viewModel.loadError) {
+                            Task { await viewModel.refreshEntries() }
+                        }.frame(maxHeight: .infinity)
+                    } else if viewModel.displayedEntries.isEmpty {
                         emptyState
                     } else {
                         playbackBar
@@ -132,6 +136,10 @@ struct WordBookView: View {
                                     },
                                     onOpenArticle: {
                                         onOpenArticle(entry.articleId)
+                                    },
+                                    isMarkingMastered: viewModel.masteringEntryIds.contains(entry.entryId),
+                                    onMastered: {
+                                        Task { await viewModel.markMastered(entry) }
                                     },
                                     onDelete: {
                                         Task {
@@ -446,6 +454,8 @@ private struct WordBookEntryCard: View {
     let onTapWord: () -> Void
     let onTapSentence: () -> Void
     let onOpenArticle: () -> Void
+    let isMarkingMastered: Bool
+    let onMastered: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -495,6 +505,15 @@ private struct WordBookEntryCard: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+            }
+
+            if entry.masteryStatus == "learning" {
+                Button(action: onMastered) {
+                    Label("已学会，移出任务", systemImage: "checkmark.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.borderless)
+                .disabled(isMarkingMastered)
             }
 
             if !entry.meaning.isEmpty {

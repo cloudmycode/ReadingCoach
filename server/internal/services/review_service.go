@@ -37,13 +37,13 @@ type WordReviewTask struct {
 
 // WordReviewTodaySummary 今日复习概览。
 type WordReviewTodaySummary struct {
-	DueCount          int `json:"due_count"`
-	CompletedCount    int `json:"completed_count"`
-	DailyLimit        int `json:"daily_limit"` // 兼容字段：0 表示无硬上限
-	DailyTarget       int `json:"daily_target"`
-	RecommendedCount  int `json:"recommended_count"`
-	BacklogCount      int `json:"backlog_count"`
-	StreakDays        int `json:"streak_days"`
+	DueCount         int `json:"due_count"`
+	CompletedCount   int `json:"completed_count"`
+	DailyLimit       int `json:"daily_limit"` // 兼容字段：0 表示无硬上限
+	DailyTarget      int `json:"daily_target"`
+	RecommendedCount int `json:"recommended_count"`
+	BacklogCount     int `json:"backlog_count"`
+	StreakDays       int `json:"streak_days"`
 }
 
 // WordReviewResult 单次复习提交结果。
@@ -251,22 +251,18 @@ func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int,
 	if err != nil {
 		return nil, fmt.Errorf("begin review result tx: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 
 	var reviewStep int
 	var masteryStatus string
-	var nextReview sql.NullTime
+	var nextReview, lastReviewed sql.NullTime
 	row := tx.QueryRowContext(ctx, `
-		SELECT review_step, mastery_status, next_review_at
+		SELECT review_step, mastery_status, next_review_at, last_reviewed_at
 		FROM user_word_book
 		WHERE user_id = ? AND entry_id = ?
 		FOR UPDATE
 	`, userID, entryID)
-	if err = row.Scan(&reviewStep, &masteryStatus, &nextReview); err != nil {
+	if err = row.Scan(&reviewStep, &masteryStatus, &nextReview, &lastReviewed); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("word book entry not found")
 		}
@@ -276,26 +272,17 @@ func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int,
 		return nil, fmt.Errorf("word review is paused")
 	}
 
-	now := time.Now()
-	newStep := reviewStep
-	newStatus := "learning"
-	var nextDate *time.Time
-
-	switch result {
-	case "again":
-		tomorrow := dateOnly(now.AddDate(0, 0, 1))
-		nextDate = &tomorrow
-	case "mastered":
-		newStep = reviewStep + 1
-		if newStep >= 4 {
-			newStatus = "mastered"
-			nextDate = nil
-		} else {
-			intervalDays := wordReviewIntervalDays(newStep)
-			next := dateOnly(now.AddDate(0, 0, intervalDays))
-			nextDate = &next
+	// 重复点击或网络重试不重复计入学习记录。
+	if masteryStatus == "mastered" && result == "mastered" {
+		out := &WordReviewResult{EntryID: entryID, Result: result, ReviewStep: reviewStep, MasteryStatus: masteryStatus}
+		if lastReviewed.Valid {
+			out.LastReviewedAt = &lastReviewed.Time
 		}
+		return out, nil
 	}
+
+	now := time.Now()
+	newStep, newStatus, nextDate := nextWordReviewState(reviewStep, result, now)
 
 	var execErr error
 	if nextDate == nil {
@@ -350,17 +337,13 @@ func (s *ArticleService) SubmitWordReviewResult(ctx context.Context, userID int,
 	return out, nil
 }
 
-func wordReviewIntervalDays(reviewStep int) int {
-	switch reviewStep {
-	case 1:
-		return 2
-	case 2:
-		return 4
-	case 3:
-		return 7
-	default:
-		return 7
+// 已学会立即退出任务池；还不熟明天继续，不再要求完成四轮。
+func nextWordReviewState(reviewStep int, result string, now time.Time) (int, string, *time.Time) {
+	if result == "mastered" {
+		return reviewStep + 1, "mastered", nil
 	}
+	tomorrow := dateOnly(now.AddDate(0, 0, 1))
+	return reviewStep, "learning", &tomorrow
 }
 
 func dateOnly(t time.Time) time.Time {

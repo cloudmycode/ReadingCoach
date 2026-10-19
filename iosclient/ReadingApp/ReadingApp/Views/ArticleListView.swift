@@ -179,6 +179,7 @@ struct ArticleListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: []) {
+                        ReadingChallengeEntry().padding(.horizontal, 24).padding(.vertical, 12)
                         if groupedArticles.isEmpty && !viewModel.isLoading {
                             emptyState
                         } else {

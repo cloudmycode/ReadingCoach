@@ -11,12 +11,22 @@ final class WordBookViewModel: ObservableObject {
     @Published var activeMeaning: String = ""
     @Published var activeTip: String = ""
     @Published var isLoading = false
+    @Published private(set) var hasLoadedEntries = false
+    @Published private(set) var loadError: String?
     @Published var isLoadingExplanation = false
     @Published var isPlayingSentence = false
     @Published var isPlayingAll = false
     @Published var toastMessage: String?
 
+    @Published var masteringEntryIds: Set<Int64> = []
+
     private var playbackTask: Task<Void, Never>?
+    private var refreshID = UUID()
+
+    init() {
+        entries = WordBookStore.shared.allEntries()
+        hasLoadedEntries = !entries.isEmpty
+    }
 
     var displayedEntries: [WordBookEntry] {
         guard let filterArticleId, !filterArticleId.isEmpty else {
@@ -49,23 +59,30 @@ final class WordBookViewModel: ObservableObject {
     }
 
     func refreshEntries() async {
+        guard let userID = UserScopedStorage.currentUserId else { return }
+        let requestID = UUID()
+        refreshID = requestID
         isLoading = true
-        defer { isLoading = false }
+        loadError = nil
+        defer { if refreshID == requestID { isLoading = false } }
 
         do {
             let response = try await WordBookAPI.shared.listEntries()
+            guard refreshID == requestID, UserScopedStorage.currentUserId == userID else { return }
             entries = response.items.map { $0.asWordBookEntry() }
             WordBookStore.shared.replaceAll(entries)
+            hasLoadedEntries = true
+            toastMessage = nil
             if let selectedEntryId, !entries.contains(where: { $0.id == selectedEntryId }) {
                 clearSelection()
             }
         } catch {
+            guard refreshID == requestID, UserScopedStorage.currentUserId == userID else { return }
             if isCancellationError(error) {
                 return
             }
-            let local = WordBookStore.shared.allEntries()
-            if !local.isEmpty {
-                entries = local
+            loadError = error.localizedDescription
+            if hasLoadedEntries {
                 toastMessage = "生词本同步失败，已显示本地缓存"
             } else {
                 toastMessage = error.localizedDescription
@@ -90,11 +107,30 @@ final class WordBookViewModel: ObservableObject {
     }
 
     func reloadForCurrentUser() {
+        refreshID = UUID()
+        isLoading = false
+        loadError = nil
         stopPlaybackAll()
         clearSelection()
         entries = WordBookStore.shared.allEntries()
+        hasLoadedEntries = !entries.isEmpty
         filterArticleId = nil
         toastMessage = nil
+    }
+
+    func markMastered(_ entry: WordBookEntry) async {
+        guard entry.masteryStatus == "learning", !masteringEntryIds.contains(entry.entryId) else { return }
+        masteringEntryIds.insert(entry.entryId)
+        defer { masteringEntryIds.remove(entry.entryId) }
+        stopPlaybackAll()
+        do {
+            _ = try await ReviewAPI.shared.submitResult(entryId: entry.entryId, result: "mastered")
+            await refreshEntries()
+            toastMessage = "已学会，已移出复习任务"
+        } catch {
+            if isCancellationError(error) { return }
+            toastMessage = error.localizedDescription
+        }
     }
 
     func deleteEntry(_ entry: WordBookEntry) async {

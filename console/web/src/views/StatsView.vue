@@ -174,7 +174,7 @@
           <div class="detail-panel__header">
             <div>
               <h3>每日复习详情</h3>
-              <p class="muted">点击日期查看当天复习的单词，以及「认识了 / 还不熟」</p>
+              <p class="muted">点击日期查看当天复习的单词，以及「已学会 / 还不熟」</p>
             </div>
           </div>
 
@@ -202,7 +202,7 @@
                       · {{ dayDurationText(group.key) }}
                     </template>
                     <template v-if="group.masteredCount || group.againCount">
-                      · 认识了 {{ group.masteredCount }} · 还不熟 {{ group.againCount }}
+                      · 已学会 {{ group.masteredCount }} · 还不熟 {{ group.againCount }}
                     </template>
                   </span>
                 </div>
@@ -476,7 +476,7 @@ function toggleDay(date: string) {
 function resultLabel(result?: string): string {
   switch ((result || "").toLowerCase()) {
     case "mastered":
-      return "认识了";
+      return "已学会";
     case "again":
       return "还不熟";
     default:

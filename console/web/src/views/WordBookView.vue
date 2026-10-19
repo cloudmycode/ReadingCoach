@@ -4,7 +4,7 @@
       <div class="panel__header">
         <div>
           <h2>生词本</h2>
-          <p class="muted">共 {{ items.length }} 个单词，可查看来源句子并删除。</p>
+          <p class="muted">共 {{ items.length }} 个单词，已学会的单词可移出复习任务，保留来源句子。</p>
         </div>
         <div class="actions">
           <button class="button button--secondary" type="button" @click="loadEntries">
@@ -29,7 +29,7 @@
             <div class="record-card__title-row">
               <h3>{{ item.word }}</h3>
               <span v-if="item.mastery_status" class="record-badge">
-                {{ item.mastery_status }}
+                {{ item.mastery_status === "mastered" ? "已学会" : item.mastery_status === "paused" ? "已暂停" : "学习中" }}
               </span>
             </div>
             <p class="record-card__meta">
@@ -48,6 +48,15 @@
             <RouterLink class="button button--ghost" :to="`/articles/${item.article_id}`">
               查看文章
             </RouterLink>
+            <button
+              v-if="item.mastery_status === 'learning'"
+              class="button button--secondary"
+              type="button"
+              :disabled="savingEntryIds.has(item.entry_id)"
+              @click="handleMastered(item.entry_id)"
+            >
+              已学会，移出任务
+            </button>
             <button
               class="button button--danger"
               type="button"
@@ -68,6 +77,7 @@ import { RouterLink } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import { ApiError, formatDateTime } from "../api/client";
 import { deleteWordBookEntry, listWordBook } from "../api/word-book";
+import { markWordMastered } from "../api/review";
 import type { WordBookItem } from "../types/api";
 
 const items = ref<WordBookItem[]>([]);
@@ -85,6 +95,21 @@ async function loadEntries() {
     errorMessage.value = error instanceof ApiError ? error.message : "加载失败";
   } finally {
     loading.value = false;
+  }
+}
+
+const savingEntryIds = ref<Set<number>>(new Set());
+
+async function handleMastered(entryId: number) {
+  if (savingEntryIds.value.has(entryId)) return;
+  savingEntryIds.value.add(entryId);
+  try {
+    await markWordMastered(entryId);
+    await loadEntries();
+  } catch (error) {
+    window.alert(error instanceof ApiError ? error.message : "标记失败");
+  } finally {
+    savingEntryIds.value.delete(entryId);
   }
 }
 

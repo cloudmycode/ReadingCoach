@@ -22,7 +22,7 @@ type TextAnalyzer interface {
 	CompleteJSONPrompt(ctx context.Context, prompt, schemaName, schemaJSON string) (string, error)
 }
 
-// AIService 通过阿里 DashScope（千问）OpenAI 兼容接口做文本理解。
+// AIService reuses the OpenAI-compatible JSON transport for article and quiz AI.
 type AIService struct {
 	apiKey string
 	apiURL string
@@ -52,11 +52,11 @@ func NewAIService(apiKey, apiURL, model string) *AIService {
 }
 
 type aiChatRequest struct {
-	Model          string             `json:"model"`
-	Messages       []aiChatMessage    `json:"messages"`
-	MaxTokens      int                `json:"max_tokens,omitempty"`
-	Temperature    float64            `json:"temperature,omitempty"`
-	ResponseFormat *aiResponseFormat  `json:"response_format,omitempty"`
+	Model          string            `json:"model"`
+	Messages       []aiChatMessage   `json:"messages"`
+	MaxTokens      int               `json:"max_tokens,omitempty"`
+	Temperature    float64           `json:"temperature,omitempty"`
+	ResponseFormat *aiResponseFormat `json:"response_format,omitempty"`
 }
 
 type aiChatMessage struct {
@@ -124,7 +124,7 @@ func (s *AIService) CompleteJSONPrompt(ctx context.Context, prompt, schemaName, 
 	}
 
 	maxTokens := 2048
-	if schemaName == "article_analysis" {
+	if schemaName == "article_analysis" || strings.HasPrefix(schemaName, "reading_") {
 		maxTokens = 8192
 	}
 
@@ -142,7 +142,7 @@ func (s *AIService) CompleteJSONPrompt(ctx context.Context, prompt, schemaName, 
 		return cleaned, nil
 	}
 	logger.Warn("⚠️ 结构化 JSON 校验失败，准备重试修复: schema=%s err=%v raw=%s",
-		schemaName, firstValidateErr, truncateForLog(raw, 1500))
+		schemaName, firstValidateErr, aiResponseForLog(schemaName, raw))
 
 	repairPrompt := buildJSONRepairPrompt(schemaName, schemaJSON, raw, firstValidateErr.Error())
 	repairedRaw, repairErr := s.chatCompletionJSON(ctx, repairPrompt, maxTokens, 0.0, schemaName, schemaJSON)
@@ -155,7 +155,7 @@ func (s *AIService) CompleteJSONPrompt(ctx context.Context, prompt, schemaName, 
 	}
 	if validateErr := validateRawJSON(repaired, schemaName, schemaJSON); validateErr != nil {
 		logger.Error("❌ JSON 修复后仍不合法: schema=%s err=%v raw=%s",
-			schemaName, validateErr, truncateForLog(repairedRaw, 1500))
+			schemaName, validateErr, aiResponseForLog(schemaName, repairedRaw))
 		return "", fmt.Errorf("json still invalid after repair: %w", validateErr)
 	}
 	logger.Info("✅ 结构化 JSON 已通过修复重试 schema=%s", schemaName)
@@ -399,4 +399,11 @@ func extractAIMessageText(raw json.RawMessage) (string, error) {
 	}
 
 	return "", fmt.Errorf("unsupported qwen content format")
+}
+
+func aiResponseForLog(schema, raw string) string {
+	if strings.HasPrefix(schema, "reading_") {
+		return "[reading content redacted]"
+	}
+	return truncateForLog(raw, 1500)
 }

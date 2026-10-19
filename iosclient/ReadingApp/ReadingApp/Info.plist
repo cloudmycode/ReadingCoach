@@ -10,9 +10,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>需要访问相机以拍摄文章内容进行解析</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>需要使用麦克风将语音问题转换为文字</string>
+	<string>需要使用麦克风进行句子跟读练习和语音提问</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>需要使用语音识别将口述问题填写到对话输入框</string>
+	<string>需要识别跟读内容以计算文字匹配分，并将口述问题转为文字；语音可能由 Apple 的服务处理</string>
 	<key>API_HOST</key>
 	<string>readingcoach.jingjiangke.com</string>
 	<key>API_SCHEME</key>

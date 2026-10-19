@@ -101,7 +101,8 @@ type ArticleAnalysisResult struct {
 
 // ArticleService 负责将识别结果落库
 type ArticleService struct {
-	db *sql.DB
+	reading *ReadingService
+	db      *sql.DB
 }
 
 // NewArticleService 创建 ArticleService
@@ -175,6 +176,9 @@ func extractJSONObject(raw string) string {
 	return trimmed
 }
 
+// SetReadingService wires quiz generation into the same transaction as article writes.
+func (s *ArticleService) SetReadingService(reading *ReadingService) { s.reading = reading }
+
 // SaveAnalyzedArticle 将 AI 识别结果写入 articles 和 article_sentences
 // 返回 articleID
 func (s *ArticleService) SaveAnalyzedArticle(
@@ -205,11 +209,7 @@ func (s *ArticleService) SaveAnalyzedArticle(
 	if err != nil {
 		return 0, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 
 	articleRes, err := tx.ExecContext(
 		ctx,
@@ -254,6 +254,11 @@ func (s *ArticleService) SaveAnalyzedArticle(
 		return 0, fmt.Errorf("no valid sentences inserted")
 	}
 
+	if s.reading != nil {
+		if _, err = s.reading.queueArticle(ctx, tx, userID, articleID); err != nil {
+			return 0, fmt.Errorf("queue article quiz: %w", err)
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit article transaction: %w", err)
 	}
@@ -300,7 +305,17 @@ func (s *ArticleService) UpdateSentenceContent(
 		return nil, fmt.Errorf("invalid sentence update")
 	}
 
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	// Use the same article-first lock order as submission and listening updates.
+	var owned int
+	if err = tx.QueryRowContext(ctx, `SELECT 1 FROM articles WHERE article_id=? AND user_id=? FOR UPDATE`, articleID, userID).Scan(&owned); err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE article_sentences s
 		JOIN articles a ON a.article_id = s.article_id
 		SET s.original_text = ?, s.translation = ?, s.updated_at = NOW(), a.updated_at = NOW()
@@ -315,6 +330,15 @@ func (s *ArticleService) UpdateSentenceContent(
 	}
 	if rowsAffected == 0 {
 		return nil, fmt.Errorf("sentence not found")
+	}
+
+	if s.reading != nil {
+		if _, err = s.reading.queueArticle(ctx, tx, userID, articleID); err != nil {
+			return nil, err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	// Existing explanations were generated from the previous sentence content.

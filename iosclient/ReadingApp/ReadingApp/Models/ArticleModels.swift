@@ -396,7 +396,7 @@ struct WordReviewTaskItem: Identifiable, Codable, Hashable {
     let masteryStatus: String
     let nextReviewAt: String?
     let lastReviewedAt: String?
-    /// mastered = 认识了，again = 还不熟；历史回填可能为空
+    /// mastered = 已学会，again = 还不熟；历史回填可能为空
     let result: String?
 
     enum CodingKeys: String, CodingKey {
@@ -426,11 +426,11 @@ struct WordReviewTaskItem: Identifiable, Codable, Hashable {
         return "entry-\(entryId)"
     }
 
-    /// 与词卡按钮文案一致：认识了 / 还不熟
+    /// 与词卡按钮文案一致：已学会 / 还不熟
     var resultLabel: String? {
         switch result?.lowercased() {
         case "mastered":
-            return "认识了"
+            return "已学会"
         case "again":
             return "还不熟"
         default:

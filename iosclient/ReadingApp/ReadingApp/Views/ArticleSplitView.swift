@@ -116,6 +116,7 @@ struct ArticleSplitView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            ReadingChallengeEntry().padding(16)
             HStack(alignment: .center, spacing: 12) {
                 Text(sidebarTitle)
                     .font(.system(size: 24, weight: .bold))
@@ -253,7 +254,12 @@ struct ArticleSplitView: View {
                     showsBackButton: false,
                     focusSentenceId: focusSentenceId,
                     startsContinuousReading: autoPlayArticleId == selectedArticle.id,
-                    onContinuousReadingFinished: openNextArticle
+                    onContinueReading: { nextArticle in
+                        guard selectedArticleId == selectedArticle.id else { return }
+                        focusSentenceId = nil
+                        autoPlayArticleId = nextArticle.id
+                        selectedArticleId = nextArticle.id
+                    }
                 )
                 .id("\(selectedArticle.id)-\(selectedArticle.title)-\(focusSentenceId.map(String.init) ?? "none")")
 
@@ -440,14 +446,7 @@ struct ArticleSplitView: View {
         }
     }
 
-    private func openNextArticle() {
-        guard let currentArticleId = selectedArticle?.id,
-              let nextArticle = viewModel.articles.nextArticle(after: currentArticleId) else { return }
 
-        focusSentenceId = nil
-        autoPlayArticleId = nextArticle.id
-        selectedArticleId = nextArticle.id
-    }
 
     private func stripeColor(for index: Int) -> Color {
         let colors: [Color] = [

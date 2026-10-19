@@ -1,62 +1,83 @@
 #!/usr/bin/env bash
 
-# 本机（Mac/ARM）构建 amd64 后端镜像，打包传到服务器并加载启动。
-# 对应部署文档「方案 C：本机构建 → save → scp → load」。
-#
-# 用法：
-#   ./scripts/docker-ship.sh
-#
-# 可用环境变量覆盖默认值：
-#   REMOTE_HOST   远程 SSH 目标，默认 root@39.105.229.91
-#   REMOTE_DIR    服务器部署目录（含 docker-compose.yml），
-#                 默认 /home/website/readingcoach.jingjiangke.com/ReadingCoach/server
-#   SSH_PORT      SSH 端口，默认 22
-#   IMAGE         镜像名:标签，默认 readingcoach-server:latest
-#
-# 前置条件：
-#   - 本机已装 Docker 且支持 buildx
-#   - 服务器已装 Docker、配好镜像加速器（用于拉取 mysql:8.0）
-#   - 服务器 REMOTE_DIR 下已准备好 .env 与 config.json，且已有 docker-compose.yml、db/schema.sql
-
+# 本机构建 amd64 镜像，更新已有部署的后端，不覆盖服务器配置或操作数据库。
+# 用法：./scripts/docker-ship.sh
+# 可覆盖：REMOTE_HOST、REMOTE_DIR、SSH_PORT、IMAGE、GOPROXY。
+# 首次部署须先按 DEPLOY_DOCKER.md 配置并启动 MySQL。
 set -euo pipefail
 
 REMOTE_HOST="${REMOTE_HOST:-root@39.105.229.91}"
 REMOTE_DIR="${REMOTE_DIR:-/home/website/readingcoach.jingjiangke.com/ReadingCoach/server}"
 SSH_PORT="${SSH_PORT:-22}"
 IMAGE="${IMAGE:-readingcoach-server:latest}"
-PLATFORM="linux/amd64"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LOCAL_TAR="/tmp/readingcoach-server.tar.gz"
-REMOTE_TAR="/tmp/readingcoach-server.tar.gz"
 
-echo "==> [1/4] buildx 构建 ${PLATFORM} 镜像：${IMAGE}"
+# 镜像名会写入临时 Compose 覆盖文件，只允许镜像引用字符。
+if [[ ! "$IMAGE" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$ ]]; then
+  echo "无效镜像名称：${IMAGE}" >&2
+  exit 1
+fi
+
+# SSH 的远端命令经过 shell 解析，逐个引用参数以支持路径中的空格等字符。
+remote() {
+  local command
+  printf -v command '%q ' bash -s -- "$@"
+  ssh -p "$SSH_PORT" "$REMOTE_HOST" "$command"
+}
+
+echo "==> [1/5] 检查服务器部署环境（保留现有配置）"
+remote "$REMOTE_DIR" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+for file in docker-compose.yml .env config.json; do
+  if [[ ! -s "$file" || ! -f "$file" ]]; then
+    echo "缺少部署文件：$file；请先完成首次部署配置。" >&2
+    exit 1
+  fi
+done
+docker info >/dev/null
+docker compose config --quiet
+REMOTE
+
+LOCAL_TMP="$(mktemp -d /tmp/readingcoach-ship.XXXXXXXX)"
+trap 'rm -rf "$LOCAL_TMP"' EXIT
+LOCAL_TAR="${LOCAL_TMP}/server.tar.gz"
+REMOTE_TAR="/tmp/${LOCAL_TMP##*/}.tar.gz"
+
+echo "==> [2/5] 构建 linux/amd64 镜像：${IMAGE}"
 docker buildx build \
-  --platform "${PLATFORM}" \
+  --platform linux/amd64 \
   --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
-  -t "${IMAGE}" \
-  --load \
-  "${SERVER_DIR}"
+  -t "$IMAGE" --load "$SERVER_DIR"
 
-echo "==> [2/4] 导出并压缩镜像到 ${LOCAL_TAR}"
-docker save "${IMAGE}" | gzip > "${LOCAL_TAR}"
-echo "    镜像包大小：$(du -h "${LOCAL_TAR}" | cut -f1)"
+echo "==> [3/5] 打包并传输镜像"
+docker save "$IMAGE" | gzip > "$LOCAL_TAR"
+scp -P "$SSH_PORT" "$LOCAL_TAR" "${REMOTE_HOST}:${REMOTE_TAR}"
 
-echo "==> [3/4] 传输到 ${REMOTE_HOST}:${REMOTE_TAR}"
-scp -P "${SSH_PORT}" "${LOCAL_TAR}" "${REMOTE_HOST}:${REMOTE_TAR}"
+echo "==> [4/5] 仅更新后端容器"
+remote "$REMOTE_DIR" "$REMOTE_TAR" "$IMAGE" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+archive="$2"
+override="$(mktemp /tmp/readingcoach-compose.XXXXXXXX)"
+trap 'rm -f "$archive" "$override"' EXIT
+gunzip -c "$archive" | docker load
+# 临时覆盖镜像名，支持 IMAGE 自定义；不改服务器 docker-compose.yml 或 .env。
+printf 'services:\n  server:\n    image: "%s"\n' "$3" > "$override"
+compose() { docker compose -f docker-compose.yml -f "$override" "$@"; }
+compose up -d --no-build --no-deps --pull never --force-recreate --timeout 30 server
 
-echo "==> [4/4] 服务器加载镜像并启动容器"
-ssh -p "${SSH_PORT}" "${REMOTE_HOST}" "
-  set -e
-  echo '    -> docker load'
-  gunzip -c '${REMOTE_TAR}' | docker load
-  cd '${REMOTE_DIR}'
-  echo '    -> docker compose up -d --no-build'
-  docker compose up -d --no-build
-  rm -f '${REMOTE_TAR}'
-  docker compose ps
-"
-
-rm -f "${LOCAL_TAR}"
-echo "==> 完成。可用 'ssh ${REMOTE_HOST} \"cd ${REMOTE_DIR} && docker compose logs -f server\"' 查看日志"
+echo "==> [5/5] 等待服务启动及数据库连通检查（最多 120 秒）"
+deadline=$((SECONDS + 120))
+while (( SECONDS < deadline )); do
+  if compose exec -T server wget -qO- -T 5 http://localhost:8080/api/health >/dev/null 2>&1; then
+    compose ps server
+    echo "==> 发布完成，服务及数据库检查通过。"
+    exit 0
+  fi
+  sleep 2
+done
+echo "服务健康检查未通过，发布失败；请在部署目录执行 docker compose logs --tail=100 server 排查。" >&2
+exit 1
+REMOTE

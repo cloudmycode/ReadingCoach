@@ -1,0 +1,149 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>ReadingCoach · 阅读小测试与七星奖励实现方案</title><style>
+:root{--ink:#202d40;--muted:#637086;--line:#dfe5ed;--accent:#245cce;--bg:#f3f6fa;--warm:#f17145}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);background:var(--bg);line-height:1.8;font-size:15px}a{color:var(--accent)}.layout{display:grid;grid-template-columns:248px minmax(0,1fr);max-width:1540px;margin:auto}aside{position:sticky;top:0;height:100vh;overflow:auto;background:#fff;border-right:1px solid var(--line);padding:30px 22px}.brand{font-weight:800;letter-spacing:.02em;font-size:18px}.tag{font-size:11px;color:var(--muted);letter-spacing:.12em;margin:4px 0 28px}.nav a{display:block;padding:8px 10px;text-decoration:none;color:var(--muted);font-size:13px;border-radius:8px;line-height:1.55;margin-bottom:5px}.nav a:hover,.nav a:focus{background:#eef3ff;color:var(--accent)}.nav span{color:#99a5b7;margin-right:8px;font-size:11px}.print{margin-top:24px;border:1px solid var(--line);padding:9px 16px;background:white;color:var(--ink);border-radius:8px;cursor:pointer}main{min-width:0;padding:36px 46px 70px}.hero{padding:42px;background:#193c72;color:white;border-radius:22px;position:relative;overflow:hidden}.hero:after{content:'05 / 30';position:absolute;right:22px;bottom:-35px;font-size:94px;font-weight:900;color:#ffffff0b;pointer-events:none}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#a8c4f7;font-weight:700}.hero h1{font-size:36px;line-height:1.35;letter-spacing:-.025em;margin:13px 0}.hero p{color:#d0def2;max-width:700px;margin-bottom:22px}.pills{display:flex;flex-wrap:wrap;gap:8px}.pills span{padding:4px 11px;border:1px solid #6680a9;border-radius:30px;font-size:12px}.meta{color:var(--muted);font-size:12px;margin:14px 4px 28px}section{background:#fff;border:1px solid var(--line);border-radius:16px;margin:22px 0;padding:30px;scroll-margin-top:24px}h2{font-size:23px;line-height:1.45;margin:0 0 22px;display:flex;gap:12px;align-items:baseline}h2 span{color:#809bc8;font-size:13px;font-weight:500}h3{font-size:17px;margin:27px 0 10px}p{margin:12px 0}.lead{font-size:18px;line-height:1.85}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:24px 0}.cards article{padding:19px;background:#f3f7fd;border:1px solid #e0e9f7;border-radius:12px}.cards small{display:block;color:var(--muted)}.cards strong{display:block;font-size:23px;color:#225197;margin:6px 0}.cards p{font-size:13px;margin:7px 0}.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:20px 0}.flow span{padding:8px 12px;background:#edf3fd;border-radius:8px;color:#30568d;font-size:13px}.flow b{font-size:14px;color:#8da3c6}.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:10px}table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.75}th{background:#edf2f8;text-align:left;color:#53637a;font-weight:600;padding:12px 15px}td{padding:13px 15px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}td:first-child{font-weight:600;min-width:125px}tr:nth-child(even) td{background:#fafbfd}ul,ol{padding-left:23px}li{padding-left:4px;margin:7px 0}.note{padding:16px 20px;border-left:3px solid var(--warm);background:#fff5ed;border-radius:0 8px 8px 0;margin:22px 0;font-size:14px}.example{background:#f6f8fb;border-radius:12px;padding:19px 22px;border:1px solid var(--line);font-size:14px}.good{color:#157451;font-weight:700}.bad{color:#b7473f;font-weight:700}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;background:#eef2f7;border-radius:3px;padding:2px 4px;overflow-wrap:anywhere}pre{background:#182638;color:#d7e5f8;padding:22px;overflow:auto;border-radius:12px;line-height:1.65;font-size:13px}pre code{background:none;padding:0;font-size:inherit}.sim{background:#163c70;color:#fff;border-radius:14px;padding:26px;display:grid;grid-template-columns:1fr 190px;gap:25px;margin-top:24px}.sim h3{font-size:23px;margin:10px 0 18px}.sim label{font-size:13px;color:#d1def0}input[type=range]{display:block;width:100%;margin:18px 0 2px;accent-color:#ffb176;cursor:pointer}.range-label{display:flex;justify-content:space-between;font-size:12px;color:#abc0df}.sim p{font-size:14px;color:#d3e2f5}.ticket{align-self:center;background:#fff3df;color:#7c4318;text-align:center;padding:22px 10px;border-radius:12px;border:2px dashed #e6bd89}.ticket small,.ticket span{display:block;font-size:12px}.ticket strong{font-size:43px;line-height:1.5;display:block}.source{font-size:12px;color:var(--muted)}button{font:inherit}button:disabled{background:#e1e8f3;border:0;border-radius:8px;padding:6px 12px;color:#566a86}footer{font-size:12px;color:var(--muted);text-align:center;margin-top:30px}:focus-visible{outline:3px solid #efa551;outline-offset:3px}
+@media(max-width:1100px){main{padding:24px}.layout{grid-template-columns:210px minmax(0,1fr)}aside{padding:24px 12px}.hero{padding:30px}section{padding:24px}.cards{grid-template-columns:1fr}.cards article{padding:14px 18px}.cards strong{font-size:21px}.sim{grid-template-columns:1fr}.ticket{max-width:240px;width:100%}}
+@media(max-width:720px){.layout{display:block}aside{position:static;height:auto;border:0;padding:18px}.tag{margin-bottom:10px}.nav{display:flex;gap:4px;overflow:auto}.nav a{flex:0 0 auto;margin:0;white-space:nowrap}.print{margin-top:12px;padding:5px 12px;font-size:12px}main{padding:14px}.hero{padding:26px 22px;border-radius:14px}.hero h1{font-size:29px}.hero p{font-size:14px}section{padding:22px 17px;margin:16px 0}h2{font-size:20px}.lead{font-size:16px}td,th{padding:11px 12px}.sim{padding:20px}.sim h3{font-size:21px}pre{padding:15px;font-size:12px}.meta{font-size:11px}}
+@media print{body{background:white;font-size:11pt;line-height:1.6}.layout{display:block}aside,.print{display:none}main{padding:0}.hero{background:#fff;color:#163c70;border:2px solid #163c70;padding:24px}.hero p,.eyebrow{color:#52657b}.hero:after{display:none}.pills span{border-color:#abb8ca}.hero h1{font-size:27pt}section{padding:18px 0;border:0;border-top:1px solid #ccc;border-radius:0;margin:18px 0}h2,h3{break-after:avoid}tr,.cards article,.note,.example{break-inside:avoid}.table-wrap{overflow:visible}thead{display:table-header-group}pre{white-space:pre-wrap;color:#222;background:#f1f3f5}.sim{background:#f1f3f5;color:#163c70;break-inside:avoid}.sim p,.sim label,.range-label{color:#52657b}input[type=range]{display:none}.source{color:#555}a{color:#225197;text-decoration:none}footer{margin-top:15px}@page{size:A4;margin:16mm}}
+
+.screenshots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:22px 0}.screenshots figure{margin:0;min-width:0}.screenshots img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:16px}.screenshots figcaption{font-size:13px;color:var(--muted);line-height:1.7;margin-top:12px}.screenshots figcaption strong{display:block;color:var(--ink);margin-bottom:4px}.reward-table tbody td{background:var(--row,#fff)}.reward-table tbody td:last-child{background:var(--amount,#f5f7fa)}.ticket button{display:block;width:100%;margin:14px 0 10px;padding:9px 10px;border:0;border-radius:9px;background:#0758e8;color:white;cursor:pointer}.ticket button:disabled{background:#e1e8f3;color:#566a86;cursor:default}.ticket [role=status]{font-size:11px;line-height:1.6}@media(max-width:720px){.screenshots{grid-template-columns:1fr;gap:26px}.screenshots figure{max-width:310px;margin:auto}.cards{margin:16px 0}}@media print{.screenshots img{max-height:130mm;width:auto;max-width:100%;margin:auto}.screenshots figure{break-inside:avoid}.ticket button{display:none}}
+</style></head><body>
+<div class="layout">
+<aside>
+  <div class="brand">ReadingCoach</div><div class="tag">阅读小测 · 七星奖励</div>
+  <nav class="nav" aria-label="文档目录">
+    <a href="#overview">01　方案概览</a><a href="#screens">02　界面效果</a>
+    <a href="#quiz">03　阅读与作答</a><a href="#grading">04　出题与批改</a>
+    <a href="#rewards">05　挑战与兑换</a><a href="#backend-implementation">06　服务端实现</a>
+  </nav>
+  <button class="print" id="printButton" type="button">打印 / 保存为 PDF</button>
+</aside>
+<main>
+<header class="hero">
+  <div class="eyebrow">READ · UNDERSTAND · ACHIEVE</div>
+  <h1>阅读小测与七星奖励</h1>
+  <p>听完一篇文章，用五道开放题检验理解；把每天的达标积累成可向家长兑换的奖励。</p>
+  <div class="pills"><span>全文听完解锁</span><span>五题同页</span><span>80 分达标</span><span>30 天累计奖励</span></div>
+</header>
+<p class="meta">最终方案 · 2026.09.22 · 现有 ReadingApp 内的功能</p>
+
+<section id="overview">
+  <h2><span>01</span>方案概览</h2>
+  <div class="flow"><span>听完全文</span><b>→</b><span>开始小测</span><b>→</b><span>提交五题</span><b>→</b><span>80 分达标</span><b>→</b><span>周期发券</span><b>→</b><span>向家长兑换</span></div>
+  <div class="cards">
+    <article><small>理解检测</small><strong>5 道开放题</strong><p>翻译、词义、句意、内容理解和概括，至少覆盖三种题型。</p></article>
+    <article><small>任务完成</small><strong>80 / 100 分</strong><p>每题正确 20 分、错误 0 分，每天最多获得一个达标日。</p></article>
+    <article><small>家庭奖励</small><strong>最高 ¥50</strong><p>30 天内累计达标，周期只发最高档一张券，漏学不清零。</p></article>
+  </div>
+  <div class="note"><strong>当前交付状态：</strong>iOS 已接入线上服务，复用原有登录与网络层：获取真实题目、同步听读、提交与恢复批改、加载挑战和兑换券、确认兑换。模拟器已加载现网数据，千问真实出题成功；批改质量、实际达标及兑换闭环仍需真实作答验收。正式入口不使用示例题目或模拟奖励。</div>
+</section>
+
+<section id="screens">
+  <h2><span>02</span>界面效果</h2>
+  <p>从现有 App 文章列表进入“阅读闯关与奖励”。三页采用浅灰蓝背景、蓝色渐变主卡和白色内容卡，自动跟随系统深浅主题；滚动时导航与页面背景保持一致。</p>
+  <div class="screenshots">
+    <figure><a href="assets/reading-challenge/home-server-connected.png"><img src="assets/reading-challenge/home-server-connected.png" alt="阅读闯关首页：蓝色主卡、今日任务与两个奖励入口" width="1206" height="2622" loading="lazy"></a><figcaption><strong>阅读闯关</strong>本期进度、线上文章选择，以及七星挑战和兑换券入口。</figcaption></figure>
+    <figure><a href="assets/reading-challenge/rewards-server-connected.png"><img src="assets/reading-challenge/rewards-server-connected.png" alt="七星挑战：真实周期起止日期与达标日历" width="1206" height="2622" loading="lazy"></a><figcaption><strong>七星挑战</strong>读取真实周期与达标日期；每格对应周期中的一天，中间漏学保持空星。</figcaption></figure>
+    <figure><a href="assets/reading-challenge/wallet-server-connected.png"><img src="assets/reading-challenge/wallet-server-connected.png" alt="兑换券列表：真实未兑换和已兑换分类及空状态" width="1206" height="2622" loading="lazy"></a><figcaption><strong>我的兑换券</strong>未兑换 / 已兑换分类；当前账号尚无券，显示真实空状态。</figcaption></figure>
+  </div>
+  <p><strong>列表加载：</strong>当前任务和单词本按账号保存本机缓存，打开先展示已有内容，再后台同步。首次使用或新设备没有缓存时显示加载提示；失败可重试，不把未加载误显示成空列表。同步失败保留缓存，成功返回空列表才清空；缓存不会自动从其他设备复制，最新任务仍以服务端为准。</p>
+  <p class="source">点击截图可查看大图。主卡使用 #0065FF → #043DC5 渐变；页面背景 #F4F7FC。已达标用金色实心星，未达标用灰蓝色细线空心星（Light 字重），不显示“补”。奖励列表的数字和状态文字与日历一致：达成金棕色、未达成灰蓝色；当前档位采用柔和同色描边。</p>
+</section>
+
+<section id="quiz">
+  <h2><span>03</span>阅读与作答</h2>
+  <div class="table-wrap"><table><thead><tr><th scope="col">页面</th><th scope="col">最终交互</th></tr></thead><tbody>
+    <tr><td>文章阅读</td><td>底部“开始小测”在全文英文音频自然播放完成、记录同步且题目准备好后可用。支持分次、逐句听完；滚动到底、点过播放或只听最后一句不算完成。读完后停留当前文章。题目未就绪时区分排队、出题审核、自动重试和失败，等待较久会提示稍后回来，并提供“刷新题目”；听读记录保留，无需重听。</td></tr>
+    <tr><td>逐词跟读</td><td>原文随音频进度逐词高亮；暂停、换句和结束时清除高亮。正文及句子翻译浮窗中的英文均支持。</td></tr>
+    <tr><td>阅读小测</td><td>全屏纵向展示五题，白底描边输入框，支持文字和语音转文字。显示已答题数，草稿按账号、文章和版本保存本机，每题最多 2000 字符；第五题下方只有一个“提交全部答案”按钮。</td></tr>
+    <tr><td>退出与原文</td><td>小测无返回按钮，右上角使用统一灰色 × 关闭按钮；“查看原文”只提供英文，其窗口采用同款关闭按钮。退出保留草稿。</td></tr>
+    <tr><td>提交与反馈</td><td>空题提示题号，可返回补充或仍然提交；提交中禁用按钮。提交前保存请求 ID；网络结果不明时锁定原答案，重试复用同一请求。退出不取消服务端批改，重进恢复提交状态；系统失败可重试。批改完成后提供逐题判定、简短反馈、总分和是否通过。</td></tr>
+  </tbody></table></div>
+  <p>听读事件按句子和服务端版本保存，断网后保留待同步记录；从文章页重进或恢复前台后重试。旧预览记录不自动计入线上成绩。听完音频只解锁小测，任务完成还需达到 80 分。正文修改后重新计算听读完成情况；重复练习不重复增加奖励天数。</p>
+</section>
+
+<section id="grading">
+  <h2><span>04</span>千问出题与批改</h2>
+  <p>文章上传后，服务端预生成五道开放题及标准答案。至少包含三种题型，题目和引用必须有原文依据；同时保存必需要点、可接受表达和关键错误，并通过独立的质量检查。</p>
+  <div class="table-wrap"><table><thead><tr><th scope="col">题型</th><th scope="col">考察方式</th></tr></thead><tbody>
+    <tr><td>原句翻译</td><td>将指定原句译为中文，保留人物、动作、否定和转折等关键信息。</td></tr>
+    <tr><td>语境词义</td><td>解释单词或短语在本篇文章中的含义。</td></tr>
+    <tr><td>句意理解</td><td>用自己的话说明某句话、指代或上下文关系。</td></tr>
+    <tr><td>内容理解 / 概括</td><td>根据文章回答事实、原因或主旨问题，不要求文外知识。</td></tr>
+  </tbody></table></div>
+  <h3>判分规则</h3>
+  <ul>
+    <li>五题一次提交，千问逐题判断语义；接受中英文同义表达，不因不影响理解的小拼写或语法错误扣分。翻译题按题干要求作答。</li>
+    <li>程序按正确题数 × 20 计算总分，≥80 分通过；空答计 0 分，不使用部分分。模型不决定达标天数或奖励金额。</li>
+    <li>无法可靠判断时自动独立复核一次；仍不确定则返回“需复核”、分数为空，不强行算错，也不计达标。孩子可以重新提交答案。</li>
+    <li>同一正文版本沿用已生成的五题；修改正文才生成新版本。已提交的答案按提交时的原文和评分标准批改。</li>
+  </ul>
+  <div class="example"><strong>判分示例</strong><p>原句：Although Tom was tired, he kept walking.</p><p><span class="good">20 分：</span>“汤姆累了，不过他还是接着往前走。”<br><span class="bad">0 分：</span>“汤姆太累了，所以停下来休息。”</p></div>
+  <p>题目接口不下发标准答案和评分要点。系统超时或格式错误进入重试，不产生错误成绩；已成功批改的同一次提交不能反复请求重新评分。</p>
+</section>
+
+<section id="rewards">
+  <h2><span>05</span>30 天挑战与兑换</h2>
+  <p>首次进入挑战或首次有效提交开始一个 30 天周期，采用上海时区的自然日，跨月仍按 30 天计算。每天首次通过一篇未过关文章记一个达标日；同日多读不抵扣其他日期，相同文章、修改链或相同内容重导不重复奖励。</p>
+  <div class="table-wrap"><table class="reward-table"><thead><tr><th scope="col">累计达标</th><th scope="col">星级</th><th scope="col">周期最高奖励</th></tr></thead><tbody>
+    <tr><td>0–4 天</td><td>未获星级</td><td>不发券</td></tr>
+    <tr style="--row:#FFF0ED;--amount:#FFDEDB"><td>5–13 天</td><td>一星</td><td>¥5</td></tr>
+    <tr style="--row:#FFF5E6;--amount:#FFECCB"><td>14–20 天</td><td>二星</td><td>¥10</td></tr>
+    <tr style="--row:#FFFBE8;--amount:#FFF5CD"><td>21–25 天</td><td>三星</td><td>¥15</td></tr>
+    <tr style="--row:#F0FFF0;--amount:#E1FDE4"><td>26–27 天</td><td>四星</td><td>¥20</td></tr>
+    <tr style="--row:#E6FFFB;--amount:#CDFBF3"><td>28 天</td><td>五星</td><td>¥25</td></tr>
+    <tr style="--row:#E8F4FF;--amount:#D3E8FF"><td>29 天</td><td>六星</td><td>¥35</td></tr>
+    <tr style="--row:#FAF0FF;--amount:#F0DEFC"><td>30 天</td><td>七星</td><td>¥50</td></tr>
+  </tbody></table></div>
+  <p>漏学不清零，不支持补签。达标归属以服务端接受提交的日期为准，跨午夜批改仍归入提交日。周期结束只发最高档一张券，不叠加；30 天全部达标且没有待批改时可立即结算。系统故障导致待批改的周期暂缓结算，下一周期独立开始；已自动复核但仍无分数的结果不阻塞结算。</p>
+  <h3 id="family">兑换方式</h3>
+  <p>孩子给家长展示兑换券，家长兑现约定奖励后，孩子点击“兑换”。成功后原卡片按钮显示“兑换成功”并禁用，保持当前位置，不自动切换到“已兑换”分类；主动切换分类或重新进入后再归类。兑换失败保留重试，重复点击只记录一次。</p>
+  <p>券展示星级、金额、来源周期、累计天数和时间。整张券兑换、默认不过期；不接入银行支付，不设置家长审批。兑换状态是孩子对线下兑现的标记。</p>
+  <div class="sim" aria-label="奖励和兑换交互示意">
+    <div><small>交互示意 · 不修改学习数据</small><h3><span id="daysText">28</span> 天 · <span id="tierText">五星</span></h3><label for="days">调整累计达标天数</label><input id="days" type="range" min="0" max="30" step="1" value="28"><div class="range-label"><span>0 天</span><span>30 天</span></div><p id="nextText"></p></div>
+    <div class="ticket"><small>周期最高档兑换券</small><strong id="amountText">¥25</strong><span id="ticketText">周期结束后发放一张</span><button id="voucherDemoButton" type="button">兑换</button><span id="voucherDemoStatus" role="status" aria-live="polite">向家长兑现后点击</span></div>
+  </div>
+</section>
+
+<section id="backend-implementation">
+  <h2><span>06</span>服务端实现</h2>
+  <p>沿用 Go / Gin、MySQL 8.0+ 和现有登录鉴权。文章与小测共用同一个 <code>AIService</code>，读取现有 <code>QwenAPIKey</code>、<code>QwenAPIURL</code>、<code>QwenModel</code>，默认模型为 qwen-plus。出题、质量检查、批改和自动复核均复用 <code>CompleteJSONPrompt</code>。</p>
+  <div class="table-wrap"><table><thead><tr><th scope="col">职责</th><th scope="col">实现约定</th></tr></thead><tbody>
+    <tr><td>文章与听读</td><td>上传或改原文时，同一事务保存不可变快照并建立出题任务；历史文章按需补建。听读记录绑定试卷版本与句子，服务端检查全部句子完成；旧版本进度不能解锁新版本。</td></tr>
+    <tr><td>题目引用校验</td><td>引用必须逐字来自原文。模型填错句子编号时，仅在引用能在原文中唯一定位的情况下自动纠正编号，再交给独立质量审核；引用不存在或无法确定位置仍拒绝并重试。</td></tr>
+    <tr><td>提交与后台任务</td><td>一次提交五题，请求 ID 保证网络重发不重复创建。MySQL 持久化队列、两个工作者、最多五次自动尝试；失败可重试，重启可恢复，AI 调用在事务外执行。接口返回已尝试次数、最大次数及开始时间；故障日志区分出题、引用校验、质量审核及超时，不记录密钥或学生答案。</td></tr>
+    <tr><td>周期与兑换</td><td>数据库锁和唯一索引保证一天一次、文章一次、周期一券。后台定期结算；金额以整数分存储，重复兑换返回原记录及首次兑换时间。</td></tr>
+    <tr><td>记录与隔离</td><td>保存原文快照、题目、答案、判定及模型信息；删除文章不丢失奖励历史。所有资源校验用户归属，学生答案不进入调试日志。</td></tr>
+  </tbody></table></div>
+  <p>接口覆盖文章小测、逐句听读完成、提交与结果查询、任务重试、当前挑战、历史周期、券列表与兑换。详细契约见 <a href="../server/docs/READING_CHALLENGES.md">服务端接口说明</a>，现有密钥配置见 <a href="../server/docs/QWEN_SETUP.md">千问配置说明</a>。</p>
+  <p><strong>部署：</strong>发布脚本仅更新后端并检查服务与数据库连通性，沿用服务器现有配置。小测与奖励建表 SQL 随程序嵌入，在启动时幂等执行；不自动扫描其他迁移文件，也不代替首次数据库初始化。操作说明见 <a href="../server/DEPLOY_DOCKER.md">部署文档</a>。</p>
+  <div class="note"><strong>接入边界：</strong>iOS 已完成听读上报、题目与批改轮询、挑战同步和券兑换接入。自动化验证覆盖断网恢复、请求幂等、账号与版本隔离、空分数、真实日期日历及兑换失败保护；运行 <code>iosclient/ReadingApp/PreviewTests/run.sh</code> 可复验。当前版本不提供家长自定义周期、人工裁决、成绩申诉或补差券。听读门槛基于客户端自然播放完成回调，服务端校验记录完整性。</div>
+</section>
+<footer>ReadingCoach · 理解有反馈，坚持有回报。</footer>
+</main></div>
+<script>
+(() => {
+  const byId = id => document.getElementById(id);
+  const tiers = [[0,'未获星级',0],[5,'一星',5],[14,'二星',10],[21,'三星',15],[26,'四星',20],[28,'五星',25],[29,'六星',35],[30,'七星',50]];
+  const slider = byId('days'), button = byId('voucherDemoButton');
+  function update() {
+    const days = Number(slider.value), tier = tiers.filter(t => days >= t[0]).pop(), next = tiers.find(t => days < t[0]);
+    byId('daysText').textContent = days;
+    byId('tierText').textContent = tier[1];
+    byId('amountText').textContent = '¥' + tier[2];
+    byId('ticketText').textContent = tier[2] ? '周期结束后发放一张' : '未达到发券门槛';
+    byId('nextText').textContent = next ? `再达标 ${next[0] - days} 天，升级${next[1]} ¥${next[2]}。` : '已达最高七星，周期总奖励 ¥50。';
+    slider.setAttribute('aria-valuetext', `${days} 个达标日，${tier[1]}，${tier[2]} 元`);
+    button.disabled = tier[2] === 0;
+    button.textContent = '兑换';
+    byId('voucherDemoStatus').textContent = tier[2] ? '向家长兑现后点击' : '累计达标 5 天起可获券';
+  }
+  slider.addEventListener('input', update);
+  button.addEventListener('click', () => {
+    button.disabled = true;
+    button.textContent = '兑换成功';
+    byId('voucherDemoStatus').textContent = '示意券已兑换，保留在当前卡片';
+  });
+  byId('printButton').addEventListener('click', () => window.print());
+  update();
+})();
+</script>
+</body></html>

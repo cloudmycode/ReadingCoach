@@ -22,10 +22,27 @@ final class ReviewTasksViewModel: ObservableObject {
     @Published var masteredInSession = 0
     @Published var againInSession = 0
     @Published var isLoading = false
+    @Published private(set) var hasLoadedTasks = false
+    @Published private(set) var isShowingCachedTasks = false
+    @Published private(set) var loadError: String?
     @Published var isSubmitting = false
     @Published var toastMessage: String?
     private var reviewDurationTracker: StudyDurationTracker?
     private var audioPreloadTask: Task<Void, Never>?
+    private var refreshID = UUID()
+
+    init() {
+        restoreCachedTasks()
+    }
+
+    private func restoreCachedTasks() {
+        guard let cache = ReviewTaskCache.load(userID: UserScopedStorage.currentUserId) else { return }
+        summary = cache.summary
+        pendingTasks = cache.pending
+        completedTasks = cache.completed
+        hasLoadedTasks = true
+        isShowingCachedTasks = true
+    }
 
     var currentSessionTask: WordReviewTaskItem? {
         guard sessionIndex >= 0, sessionIndex < sessionQueue.count else { return nil }
@@ -78,30 +95,46 @@ final class ReviewTasksViewModel: ObservableObject {
     }
 
     func loadTasks() async {
-        if isLoading { return }
+        guard !isLoading, let userID = UserScopedStorage.currentUserId else { return }
+        let requestID = UUID()
+        refreshID = requestID
         isLoading = true
-        defer { isLoading = false }
+        loadError = nil
+        defer { if refreshID == requestID { isLoading = false } }
 
         do {
             async let summaryResponse = ReviewAPI.shared.todaySummary()
             async let pendingResponse = ReviewAPI.shared.listTasks(status: "pending")
             async let completedResponse = ReviewAPI.shared.listTasks(status: "completed")
             let (today, pending, completed) = try await (summaryResponse, pendingResponse, completedResponse)
+            guard refreshID == requestID, UserScopedStorage.currentUserId == userID else { return }
             summary = today
             pendingTasks = pending.items
             completedTasks = completed.items
+            ReviewTaskCache(summary: today, pending: pending.items, completed: completed.items).save(userID: userID)
+            hasLoadedTasks = true
+            isShowingCachedTasks = false
             toastMessage = nil
             await AppIconBadgeManager.refresh(pendingCount: pendingTasks.count)
+            guard refreshID == requestID, UserScopedStorage.currentUserId == userID else { return }
             preloadTaskAudio(pending: pendingTasks, completed: completedTasks)
         } catch {
+            guard refreshID == requestID, UserScopedStorage.currentUserId == userID else { return }
             if isCancellationError(error) {
                 return
             }
-            toastMessage = error.localizedDescription
+            loadError = error.localizedDescription
+            isShowingCachedTasks = hasLoadedTasks
+            toastMessage = hasLoadedTasks ? "复习任务同步失败，已保留上次内容" : error.localizedDescription
         }
     }
 
     func reloadForCurrentUser() {
+        refreshID = UUID()
+        isLoading = false
+        hasLoadedTasks = false
+        isShowingCachedTasks = false
+        loadError = nil
         audioPreloadTask?.cancel()
         audioPreloadTask = nil
         summary = WordReviewTodaySummary(
@@ -115,6 +148,7 @@ final class ReviewTasksViewModel: ObservableObject {
         )
         pendingTasks = []
         completedTasks = []
+        restoreCachedTasks()
         closeSession()
         toastMessage = nil
         Task {

@@ -13,6 +13,7 @@ type Handlers struct {
 	Review   *ReviewHandler
 	WordBook *WordBookHandler
 	Stats    *StatsHandler
+	Reading  *ReadingHandler
 }
 
 // Route 描述单个 HTTP 接口。
@@ -74,6 +75,10 @@ func (h *Handlers) APIRoutes() []APIGroup {
 			Routes: []Route{
 				{http.MethodGet, "", true, "获取文章列表", h.Article.ListArticles},
 				{http.MethodGet, "/:id", true, "获取文章详情", h.Article.GetArticleDetail},
+				{http.MethodGet, "/:id/quiz", true, "获取文章小测与听读进度", h.Reading.Paper},
+				{http.MethodPost, "/:id/listening-completions", true, "记录单句音频自然播放完成", h.Reading.Listening},
+				{http.MethodPost, "/:id/quiz/attempts", true, "提交五题开放答案", h.Reading.Submit},
+				{http.MethodGet, "/:id/quiz/attempts", true, "查看本篇小测记录", h.Reading.Attempts},
 				{http.MethodDelete, "/:id", true, "删除文章", h.Article.DeleteArticle},
 				{http.MethodPost, "/:id/title", true, "修改文章标题", h.Article.UpdateArticleTitle},
 				{http.MethodPost, "/:id/read-duration", true, "上报文章有效阅读时长", h.Article.ReportReadDuration},
@@ -84,6 +89,15 @@ func (h *Handlers) APIRoutes() []APIGroup {
 				{http.MethodPost, "/:id/sentences/:sentence_id/ask", true, "围绕句子提问", h.Article.AskSentenceQuestion},
 			},
 		},
+		{Prefix: "/reading", Desc: "阅读闯关与奖励", Routes: []Route{
+			{http.MethodGet, "/challenge", true, "当前30天挑战", h.Reading.Challenge},
+			{http.MethodGet, "/cycles", true, "最近24个挑战周期", h.Reading.Cycles},
+			{http.MethodGet, "/attempts/:attempt_id", true, "查询批改结果", h.Reading.Attempt},
+			{http.MethodPost, "/attempts/:attempt_id/retry", true, "重试失败批改任务", h.Reading.Retry("grade")},
+			{http.MethodPost, "/papers/:paper_id/retry", true, "重试失败出题任务", h.Reading.Retry("generate")},
+			{http.MethodGet, "/vouchers", true, "查询兑换券", h.Reading.Vouchers},
+			{http.MethodPost, "/vouchers/:voucher_id/redeem", true, "标记兑换成功", h.Reading.Redeem},
+		}},
 		{
 			Prefix: "/review",
 			Desc:   "生词复习任务",

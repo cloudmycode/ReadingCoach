@@ -95,7 +95,8 @@ final class WordBookStore {
             guard let database else { return [] }
             let sql = """
             SELECT entry_id, article_id, sentence_id, word, normalized_word, sentence_original, sentence_translation,
-                   part_of_speech, meaning, tip, looked_up_at
+                   part_of_speech, meaning, tip, looked_up_at,
+                   review_step, next_review_at, mastery_status, last_reviewed_at
             FROM word_book_entries
             ORDER BY datetime(looked_up_at) DESC, entry_id DESC;
             """
@@ -121,10 +122,10 @@ final class WordBookStore {
                         partOfSpeech: Self.string(from: statement, index: 7),
                         meaning: Self.string(from: statement, index: 8),
                         tip: Self.string(from: statement, index: 9),
-                        reviewStep: 0,
-                        nextReviewAt: nil,
-                        masteryStatus: "learning",
-                        lastReviewedAt: nil,
+                        reviewStep: Int(sqlite3_column_int(statement, 11)),
+                        nextReviewAt: Self.optionalString(from: statement, index: 12),
+                        masteryStatus: Self.string(from: statement, index: 13),
+                        lastReviewedAt: Self.optionalString(from: statement, index: 14),
                         lookedUpAt: parseDate(lookedUpRaw) ?? Date()
                     )
                 )
@@ -143,8 +144,9 @@ final class WordBookStore {
             INSERT INTO word_book_entries (
                 entry_id, article_id, sentence_id, normalized_word, word,
                 sentence_original, sentence_translation,
-                part_of_speech, meaning, tip, looked_up_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                part_of_speech, meaning, tip, looked_up_at,
+                review_step, next_review_at, mastery_status, last_reviewed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
 
             for entry in entries {
@@ -163,6 +165,14 @@ final class WordBookStore {
                 sqlite3_bind_text(statement, 9, entry.meaning, -1, transientDestructor)
                 sqlite3_bind_text(statement, 10, entry.tip, -1, transientDestructor)
                 sqlite3_bind_text(statement, 11, lookedUpAt, -1, transientDestructor)
+                sqlite3_bind_int(statement, 12, Int32(entry.reviewStep))
+                if let nextReviewAt = entry.nextReviewAt {
+                    sqlite3_bind_text(statement, 13, nextReviewAt, -1, transientDestructor)
+                }
+                sqlite3_bind_text(statement, 14, entry.masteryStatus, -1, transientDestructor)
+                if let lastReviewedAt = entry.lastReviewedAt {
+                    sqlite3_bind_text(statement, 15, lastReviewedAt, -1, transientDestructor)
+                }
                 sqlite3_step(statement)
             }
         }
@@ -185,7 +195,7 @@ final class WordBookStore {
 
     private func createTableIfNeededLocked() {
         guard let database else { return }
-        if !hasEntryIdColumn(database: database) {
+        if !hasColumn("entry_id", database: database) {
             sqlite3_exec(database, "DROP TABLE IF EXISTS word_book_entries;", nil, nil, nil)
         }
         let sql = """
@@ -205,9 +215,18 @@ final class WordBookStore {
         );
         """
         sqlite3_exec(database, sql, nil, nil, nil)
+        let reviewColumns = [
+            ("review_step", "INTEGER NOT NULL DEFAULT 0"),
+            ("next_review_at", "TEXT"),
+            ("mastery_status", "TEXT NOT NULL DEFAULT 'learning'"),
+            ("last_reviewed_at", "TEXT")
+        ]
+        for (name, definition) in reviewColumns where !hasColumn(name, database: database) {
+            sqlite3_exec(database, "ALTER TABLE word_book_entries ADD COLUMN \(name) \(definition);", nil, nil, nil)
+        }
     }
 
-    private func hasEntryIdColumn(database: OpaquePointer) -> Bool {
+    private func hasColumn(_ name: String, database: OpaquePointer) -> Bool {
         let sql = "PRAGMA table_info(word_book_entries);"
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
@@ -215,7 +234,7 @@ final class WordBookStore {
             return false
         }
         while sqlite3_step(statement) == SQLITE_ROW {
-            if Self.string(from: statement, index: 1) == "entry_id" {
+            if Self.string(from: statement, index: 1) == name {
                 return true
             }
         }
@@ -228,6 +247,11 @@ final class WordBookStore {
         }
         let plain = ISO8601DateFormatter()
         return plain.date(from: raw)
+    }
+
+    private static func optionalString(from statement: OpaquePointer?, index: Int32) -> String? {
+        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
+        return string(from: statement, index: index)
     }
 
     private static func string(from statement: OpaquePointer?, index: Int32) -> String {

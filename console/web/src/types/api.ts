@@ -92,7 +92,7 @@ export interface WordReviewTaskItem {
   mastery_status: string;
   next_review_at?: string;
   last_reviewed_at?: string;
-  /** mastered = 认识了，again = 还不熟 */
+  /** mastered = 已学会，again = 还不熟 */
   result?: "mastered" | "again" | string;
 }
 

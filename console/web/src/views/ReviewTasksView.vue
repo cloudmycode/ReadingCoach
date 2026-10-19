@@ -89,6 +89,15 @@
                 查看文章
               </RouterLink>
               <button
+                v-if="item.mastery_status === 'learning'"
+                class="button button--secondary"
+                type="button"
+                :disabled="savingEntryIds.has(item.entry_id)"
+                @click="handleMastered(item.entry_id)"
+              >
+                已学会，移出任务
+              </button>
+              <button
                 class="button button--danger"
                 type="button"
                 @click="handleDelete(item.entry_id, item.word)"
@@ -171,7 +180,7 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import { ApiError, formatDateTime } from "../api/client";
-import { getReviewSummary, listReviewTasks } from "../api/review";
+import { getReviewSummary, listReviewTasks, markWordMastered } from "../api/review";
 import { deleteWordBookEntry } from "../api/word-book";
 import type { WordReviewSummary, WordReviewTaskItem } from "../types/api";
 
@@ -267,7 +276,7 @@ function toggleDay(key: string) {
 function resultLabel(result?: string): string {
   switch ((result || "").toLowerCase()) {
     case "mastered":
-      return "认识了";
+      return "已学会";
     case "again":
       return "还不熟";
     default:
@@ -307,6 +316,21 @@ async function loadAll() {
   }
 }
 
+const savingEntryIds = ref<Set<number>>(new Set());
+
+async function handleMastered(entryId: number) {
+  if (savingEntryIds.value.has(entryId)) return;
+  savingEntryIds.value.add(entryId);
+  try {
+    await markWordMastered(entryId);
+    await loadAll();
+  } catch (error) {
+    window.alert(error instanceof ApiError ? error.message : "标记失败");
+  } finally {
+    savingEntryIds.value.delete(entryId);
+  }
+}
+
 async function handleDelete(entryId: number, word: string) {
   const confirmed = window.confirm(`确定删除任务“${word}”吗？这会同时从生词本移除。`);
   if (!confirmed) {
@@ -315,19 +339,7 @@ async function handleDelete(entryId: number, word: string) {
 
   try {
     await deleteWordBookEntry(entryId);
-    pendingItems.value = pendingItems.value.filter((item) => item.entry_id !== entryId);
-    completedItems.value = completedItems.value.filter((item) => item.entry_id !== entryId);
-    summary.value = {
-      ...summary.value,
-      due_count: Math.max(
-        0,
-        summary.value.due_count - (activeTab.value === "pending" ? 1 : 0),
-      ),
-      completed_count: Math.max(
-        0,
-        summary.value.completed_count - (activeTab.value === "completed" ? 1 : 0),
-      ),
-    };
+    await loadAll();
   } catch (error) {
     window.alert(error instanceof ApiError ? error.message : "删除失败");
   }

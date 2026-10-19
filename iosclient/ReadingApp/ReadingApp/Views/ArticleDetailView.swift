@@ -8,7 +8,9 @@
 import SwiftUI
 
 struct ArticleDetailView: View {
+    @AppStorage(ArticleReadingLanguage.storageKey) private var readingLanguage: ArticleReadingLanguage = .english
     @StateObject private var viewModel: ArticleDetailViewModel
+    @ObservedObject private var audioManager = ArticleAudioManager.shared
     @StateObject private var speechInput = SpeechInputManager()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appNavigationPath) private var appNavigationPath
@@ -16,6 +18,7 @@ struct ArticleDetailView: View {
     private let showsBackButton: Bool
     private let focusSentenceId: Int?
     private let startsContinuousReading: Bool
+    private let onContinueReading: ((ArticleItem) -> Void)?
     @State private var isNavigatingBack = false
     @State private var selectedSentenceIndex: Int?
     @State private var questionDraft = ""
@@ -44,18 +47,18 @@ struct ArticleDetailView: View {
         showsBackButton: Bool = true,
         focusSentenceId: Int? = nil,
         startsContinuousReading: Bool = false,
-        onContinuousReadingFinished: (() -> Void)? = nil
+        onContinueReading: ((ArticleItem) -> Void)? = nil
     ) {
         _viewModel = StateObject(
             wrappedValue: ArticleDetailViewModel(
                 articleId: articleId,
-                initialTitle: articleTitle,
-                onContinuousPlaybackFinished: onContinuousReadingFinished
+                initialTitle: articleTitle
             )
         )
         self.showsBackButton = showsBackButton
         self.focusSentenceId = focusSentenceId
         self.startsContinuousReading = startsContinuousReading
+        self.onContinueReading = onContinueReading
     }
 
     var body: some View {
@@ -69,6 +72,9 @@ struct ArticleDetailView: View {
 
             VStack(spacing: 0) {
                 topBar
+                if readingLanguage == .followAlong || viewModel.isFollowingAlong {
+                    followAlongStatus
+                }
                 articleBody
             }
 
@@ -112,7 +118,22 @@ struct ArticleDetailView: View {
             .onChange(of: viewModel.sentences.count) { _, _ in
                 applyFocusSentenceIfNeeded()
             }
+            .onChange(of: viewModel.nextArticleToRead) { _, article in
+                guard let article, !isNavigatingBack else { return }
+                if let onContinueReading {
+                    onContinueReading(article)
+                } else if let path = appNavigationPath, !path.wrappedValue.isEmpty {
+                    // Replace the current article so Back still returns to the article list.
+                    var updatedPath = path.wrappedValue
+                    updatedPath.removeLast()
+                    updatedPath.append(AppNavigationRoute.articleRoute(.autoPlayArticle(article)))
+                    path.wrappedValue = updatedPath
+                }
+            }
             .onDisappear(perform: handleDisappear)
+            .onReceive(NotificationCenter.default.publisher(for: .userScopedStorageDidChange)) { _ in
+                viewModel.readingAccountDidChange()
+            }
             .alert(
                 viewModel.toastMessage ?? "",
                 isPresented: toastBinding
@@ -243,7 +264,25 @@ struct ArticleDetailView: View {
 
             Spacer()
 
+            Menu {
+                Picker("连续阅读", selection: $readingLanguage) {
+                    ForEach(ArticleReadingLanguage.allCases, id: \.self) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .pickerStyle(.inline)
+                Text("跟读：滴声后开始，时间为示范的 1.3 倍。读完留在本篇查看逐句评分，不自动切换。评分为识别文字匹配度，非专业发音评测。语音可能由 Apple 服务处理。")
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("阅读设置")
+            .accessibilityValue(readingLanguage.title)
+
             Button {
+                speechInput.cancelRecording()
                 viewModel.toggleVoiceReading(startingAt: activeSentenceIndex)
                 if viewModel.playbackMode == .continuous,
                    viewModel.currentSentenceIndex == nil,
@@ -270,6 +309,42 @@ struct ArticleDetailView: View {
         }
     }
 
+    private var followAlongStatus: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let deadline = viewModel.followAlongDeadline {
+                TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                    Label("请跟读 · 正在收音 · 剩余 \(max(0, Int(ceil(deadline.timeIntervalSince(context.date))))) 秒", systemImage: "mic.fill")
+                        .foregroundStyle(.blue)
+                }
+            } else if viewModel.isScoringFollowAlong {
+                Label("正在识别评分…", systemImage: "waveform")
+            } else if viewModel.isFollowAlongMicrophoneReady {
+                Label("麦克风已开启，请开始跟读", systemImage: "mic.fill")
+                    .foregroundStyle(.blue)
+            } else {
+                Text(viewModel.isPlaying ? "请先听示范，滴声后开始跟读" : "跟读模式：时间多给 30%，读完留在本篇")
+            }
+            if let index = viewModel.lastFollowAlongIndex, let result = viewModel.followAlongResults[index] {
+                Text("第 \(index + 1) 句：" + followAlongResultText(result))
+                    .font(.caption)
+            } else {
+                Text("1–10 分为识别文字匹配度，不是专业发音评分")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.05))
+    }
+
+    private func followAlongResultText(_ result: FollowAlongResult) -> String {
+        if let score = result.score { return "跟读分 \(score)/10 · 识别文字匹配度" }
+        return result.failureMessage ?? "未识别到语音，未评分"
+    }
+
     private var articleBody: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
@@ -279,6 +354,11 @@ struct ArticleDetailView: View {
                             Text(viewModel.readingMetaText)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Color(red: 0.57, green: 0.64, blue: 0.75))
+                        }
+                        if let date = viewModel.lastFollowAlongDate {
+                            Text("本机最近跟读：\(date.formatted(date: .abbreviated, time: .shortened)) · 已记录 \(viewModel.followAlongResults.count)/\(viewModel.sentences.count) 句")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         if viewModel.sentences.isEmpty && !viewModel.isLoading {
                             Text("文章内容还没准备好")
@@ -295,10 +375,32 @@ struct ArticleDetailView: View {
                                                 .frame(height: 12)
                                                 .id(sentenceScrollTargetID(sentenceIndex))
                                             sentenceLine(for: sentenceIndex)
+                                            if let result = viewModel.followAlongResults[sentenceIndex] {
+                                                VStack(alignment: .leading, spacing: 4) {
+                                                    Text(followAlongResultText(result))
+                                                        .foregroundStyle(result.score == nil ? Color.secondary : Color.blue)
+                                                    if !result.transcript.isEmpty {
+                                                        Text("识别：\(result.transcript)")
+                                                            .foregroundStyle(.secondary)
+                                                    }
+                                                }
+                                                .font(.caption)
+                                                .padding(.top, 8)
+                                            }
                                         }
                                     }
                                 }
                             }
+                        }
+                        if !viewModel.sentences.isEmpty {
+                            ReadingQuizEntry(
+                                store: viewModel.quizStore
+                            ) {
+                                viewModel.stopVoiceReading()
+                                speechInput.cancelRecording()
+                                selectedSentenceIndex = nil
+                            }
+                            .padding(.vertical, 12)
                         }
                     }
                     .background(
@@ -352,11 +454,12 @@ struct ArticleDetailView: View {
         let isSelected = activeSentenceIndex == index
 
         return Button {
+            speechInput.cancelRecording()
             selectedSentenceIndex = index
             pendingScrollSentenceIndex = index
             viewModel.playSentence(at: index)
         } label: {
-            Text(sentence.original)
+            Text(highlightedSentence(sentence, at: index))
                 .font(.system(size: 17, weight: .regular))
                 .foregroundColor(isSelected ? Color(red: 0.0, green: 0.4, blue: 1.0) : Color(red: 0.14, green: 0.18, blue: 0.27))
                 .lineSpacing(3)
@@ -369,6 +472,28 @@ struct ArticleDetailView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private var spokenWordColor: Color { Color(red: 1, green: 0.88, blue: 0.40) }
+
+    private func spokenRange(for sentence: ArticleSentence, at index: Int) -> NSRange? {
+        guard viewModel.currentSentenceIndex == index,
+              let word = audioManager.currentWord,
+              word.sentenceId == sentence.sentenceId,
+              word.sourceText == sentence.original else { return nil }
+        return word.range
+    }
+
+    private func highlightedSentence(_ sentence: ArticleSentence, at index: Int) -> AttributedString {
+        var attributed = AttributedString(sentence.original)
+        if let nsRange = spokenRange(for: sentence, at: index),
+           let range = Range(nsRange, in: sentence.original),
+           let lower = AttributedString.Index(range.lowerBound, within: attributed),
+           let upper = AttributedString.Index(range.upperBound, within: attributed) {
+            attributed[lower..<upper].backgroundColor = spokenWordColor
+            attributed[lower..<upper].foregroundColor = Color(red: 0.14, green: 0.18, blue: 0.27)
+        }
+        return attributed
     }
 
     private func sentenceScrollTargetID(_ index: Int) -> String {
@@ -459,7 +584,7 @@ struct ArticleDetailView: View {
                             sentenceEditor
                         } else {
                             HStack(alignment: .top, spacing: 10) {
-                                sentenceWordBar(sentence.original)
+                                sentenceWordBar(sentence)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Button {
@@ -555,8 +680,9 @@ struct ArticleDetailView: View {
         min(max(proposedHeight, minimumPanelHeight), maximumPanelHeight)
     }
 
-    private func sentenceWordBar(_ sentence: String) -> some View {
-        let tokens = WordToken.tokenize(sentence)
+    private func sentenceWordBar(_ sentence: ArticleSentence) -> some View {
+        let tokens = WordToken.tokenize(sentence.original)
+        let activeSpokenRange: NSRange? = activeSentenceIndex.flatMap { spokenRange(for: sentence, at: $0) }
         return FlowLayout(spacing: 4, lineSpacing: 8) {
             ForEach(tokens) { token in
                 if token.isWord {
@@ -590,7 +716,9 @@ struct ArticleDetailView: View {
                             .padding(.horizontal, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(selectedWordNormalized == token.normalized ? Color(red: 0.91, green: 0.96, blue: 1.0) : Color.clear)
+                                    .fill(activeSpokenRange.map { NSIntersectionRange($0, token.range).length > 0 } == true
+                                          ? spokenWordColor
+                                          : (selectedWordNormalized == token.normalized ? Color(red: 0.91, green: 0.96, blue: 1.0) : Color.clear))
                             )
                     }
                     .buttonStyle(.plain)
@@ -1084,7 +1212,8 @@ private struct ArticleContentHeightKey: PreferenceKey {
 }
 
 private struct WordToken: Identifiable {
-    let id = UUID()
+    var id: Int { range.location }
+    let range: NSRange
     let text: String
     let normalized: String
     let isWord: Bool
@@ -1092,7 +1221,7 @@ private struct WordToken: Identifiable {
     static func tokenize(_ text: String) -> [WordToken] {
         let pattern = #"[A-Za-z']+|[^A-Za-z'\s]+"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return [WordToken(text: text, normalized: text.lowercased(), isWord: true)]
+            return [WordToken(range: NSRange(location: 0, length: (text as NSString).length), text: text, normalized: text.lowercased(), isWord: true)]
         }
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
@@ -1100,6 +1229,7 @@ private struct WordToken: Identifiable {
             let token = nsText.substring(with: match.range)
             let normalized = token.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?;:\"'()[]{}")).lowercased()
             return WordToken(
+                range: match.range,
                 text: token,
                 normalized: normalized,
                 isWord: normalized.range(of: #"^[a-z']+$"#, options: .regularExpression) != nil

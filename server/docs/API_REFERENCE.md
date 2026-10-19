@@ -236,7 +236,11 @@
 | GET | `/api/review/tasks?status=pending\|completed` | 待复习 / 已复习历史（近 90 天，含 `result` / `log_id`） |
 | POST | `/api/review/tasks/:entry_id/result` | 提交结果：`{"result":"mastered"\|"again"}` |
 
-`completed` 来自 `user_word_review_logs`：每次提交写入一条日志（`mastered`=认识了，`again`=还不熟）。学习统计的每日复习词数按该日志按日计数。
+`completed` 来自 `user_word_review_logs`：每次提交写入一条日志（`mastered`=已学会，`again`=还不熟）。学习统计的每日复习词数按该日志按日计数。
+
+`mastered` 会立即设置 `mastery_status = mastered` 并清空 `next_review_at`，从待复习、推荐量和积压中排除；生词本条目及复习历史保留。`again` 保持学习中并安排明天复习。每日 30 个仍为建议量。重复提交已学会不重复写日志。
+
+部署时执行 `db/migrations/20260920_retire_mastered_word_reviews.sql`，将最后一次明确结果为 `mastered` 的旧学习中条目移出排期；最后结果为 `again`、空结果及暂停条目保留。
 
 查词写入生词本时，新词默认 `next_review_at = 明天`。旧文章复习表 `article_review_tasks` 已废弃删除。
 
@@ -271,3 +275,8 @@
 ---
 
 该文档覆盖现有 server/client 所有可见 API。如需扩展，请在新增路由时同步更新此文档并告知客户端团队。
+
+
+## 阅读小测、七星挑战与家庭兑换券（2026-09-20）
+
+新增服务端接口、复用现有千问配置、异步状态、听读上报及奖励规则详见 [READING_CHALLENGES.md](READING_CHALLENGES.md)。所有接口需现有 JWT；文章 ID 沿用加密格式。iOS 已接入题目、听读上报、提交与结果恢复、挑战进度和券兑换，复用现有登录及网络层。

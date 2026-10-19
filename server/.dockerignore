@@ -10,7 +10,11 @@ config.json
 .env
 
 # 数据库 dump 通过 docker-compose 挂载给 MySQL 容器，无需进镜像（体积大）
-db/
+db/*
+!db/reading.go
+!db/migrations/
+db/migrations/*
+!db/migrations/20260920_add_reading_challenges.sql
 
 # 测试脚本与样例图片
 scripts/*.jpg

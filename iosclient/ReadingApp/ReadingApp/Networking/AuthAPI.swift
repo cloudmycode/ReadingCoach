@@ -10,6 +10,7 @@ import Foundation
 enum APIError: LocalizedError {
     case invalidURL
     case server(message: String)
+    case http(status: Int, message: String)
     case decoding
     case network(Error)
 
@@ -17,7 +18,7 @@ enum APIError: LocalizedError {
         switch self {
         case .invalidURL:
             return "接口地址无效"
-        case .server(let message):
+        case .server(let message), .http(_, let message):
             return message
         case .decoding:
             return "数据解析失败"

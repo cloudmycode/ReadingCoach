@@ -1,6 +1,6 @@
 # 千问（DashScope）API 配置说明
 
-文本能力（拆句、翻译、单词解释、句子问答）与拍照 OCR 均使用阿里云 DashScope 千问模型。
+文本能力（拆句、翻译、单词解释、句子问答、小测出题与批改）与拍照 OCR 均使用阿里云 DashScope 千问模型。
 
 ## 获取 API Key
 
@@ -25,7 +25,7 @@
 
 | 字段 | 用途 | 推荐值 |
 |---|---|---|
-| `QwenModel` | 文本：拆句 / 翻译 / 单词解释 / 问答 | `qwen-plus`（也可用 `qwen-turbo` / `qwen-flash`） |
+| `QwenModel` | 文本：拆句 / 翻译 / 单词解释 / 问答 / 小测 | `qwen-plus`（也可用 `qwen-turbo` / `qwen-flash`） |
 | `QwenVLModel` | 拍照 OCR | `qwen-vl-ocr` |
 
 > 若只填其中一个 Key，启动时会自动互为缺省（同一 DashScope 账号）。
@@ -43,3 +43,5 @@ Docker 部署见 `DEPLOY_DOCKER.md`：改服务器上的 `config.json` 后执行
 
 - API Key 不要提交到 Git（`config.json` 已在 `.gitignore`）
 - 旧配置里的 `DeepSeekAPIKey` 仍会被读取并映射为 `QwenAPIKey`，但请求地址会走 DashScope；建议直接改成新字段
+
+阅读小测直接共享文章功能的 `AIService` 和上述 Qwen 配置，无需单独的 `QuizAI.APIKey`。旧 `QuizAI` 配置和 `QUIZ_AI_*` 环境变量不再读取。

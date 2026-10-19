@@ -9,7 +9,7 @@ xcuserdata/
 server/config.json
 server/.env
 server/bin/
-server/logs/
+server/**/logs/
 server/release/
 
 # Generated attachments

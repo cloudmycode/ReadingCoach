@@ -32,16 +32,32 @@ struct ReviewTasksView: View {
             tabHeader
             ScrollView {
                 VStack(spacing: 14) {
-                    if selectedTab == .current {
-                        currentTaskContent
+                    if !viewModel.hasLoadedTasks {
+                        ListLoadingView(isLoading: viewModel.isLoading, errorMessage: viewModel.loadError) {
+                            Task { await viewModel.loadTasks() }
+                        }
                     } else {
-                        completedTaskContent
+                        if viewModel.isShowingCachedTasks {
+                            HStack {
+                                Text(viewModel.loadError == nil ? "显示上次同步内容，正在更新…" : "暂未同步，显示上次内容")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                if viewModel.loadError != nil {
+                                    Button("重试") { Task { await viewModel.loadTasks() } }.font(.caption)
+                                }
+                            }
+                        }
+                        if selectedTab == .current {
+                            currentTaskContent
+                        } else {
+                            completedTaskContent
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
                 .padding(.bottom, 120)
             }
+            .refreshable { await viewModel.loadTasks() }
         }
         .task {
             await viewModel.loadTasks()
@@ -638,7 +654,7 @@ struct WordReviewSessionView: View {
                     Button {
                         Task { await viewModel.submitCurrent(result: "mastered") }
                     } label: {
-                        Text("认识了")
+                        Text("已学会")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -688,7 +704,7 @@ struct WordReviewSessionView: View {
             Text("\(viewModel.sessionQueue.count) 个生词已复习")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(Color(red: 0.47, green: 0.55, blue: 0.68))
-            Text("认识了 \(viewModel.masteredInSession) 个 · 还不熟 \(viewModel.againInSession) 个")
+            Text("已学会 \(viewModel.masteredInSession) 个 · 还不熟 \(viewModel.againInSession) 个")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(Color(red: 0.14, green: 0.18, blue: 0.27))
             if viewModel.canContinueBacklog {
